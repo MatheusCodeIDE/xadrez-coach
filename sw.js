@@ -1,5 +1,5 @@
 // Xadrez Coach — funciona offline. Troque o número da versão a cada atualização.
-const CACHE = 'xadrez-coach-v23';
+const CACHE = 'xadrez-coach-v24';
 const FILES = [
   './', './index.html', './style.css', './pieces.css', './app.js', './analysis.js', './board.js', './engine.js',
   './train.js', './ach.js', './endgames.js', './openings.js', './bots.js', './puzzles.json', './manifest.webmanifest',
