@@ -149,6 +149,7 @@ function tryMove(fen, uci) {
   } catch (e) { return null; }
 }
 
+function matBal(g, color) { let t = 0; for (const row of g.board()) for (const x of row) if (x && x.type !== 'k') t += (x.color === color ? 1 : -1) * VAL[x.type]; return t; }
 // Gera a explicação textual (em português) para um lance ruim
 function explain(i, fens, moves, evals, info, pt) {
   const fen = fens[i], afterFen = fens[i + 1];
@@ -175,12 +176,17 @@ function explain(i, fens, moves, evals, info, pt) {
     if (gain > 0 || (!defenders && VAL[reply.captured] >= 1)) {
       const fem = PT_FEM[reply.captured];
       const nm = unit(reply.captured);
-      if (reply.to === mv.to) {
+      let ignored = false;
+      try { ignored = reply.to !== mv.to && threatenedPieces(new Chess(fen), mover).some((p) => p.sq === reply.to); } catch (e) {}
+      if (ignored) {
+        reasons.push(`Você ignorou uma ameaça: ${nm} em ${reply.to} já estava atacad${fem ? 'a' : 'o'} e o adversário captura com ${fmtSan(reply.san, pt)}. Antes de mover, veja o que ele está ameaçando.`);
+        tags.push('ignoredthreat');
+      } else if (reply.to === mv.to) {
         reasons.push(`Sua peça em ${reply.to} ficou ${defenders ? 'mal protegida' : 'sem proteção'}: o adversário pode capturar com ${fmtSan(reply.san, pt)}.`);
       } else {
         reasons.push(`Esse lance deixou ${nm} em ${reply.to} ${defenders ? (fem ? 'mal protegida' : 'mal protegido') : (fem ? 'desprotegida' : 'desprotegido')}; o adversário captura com ${fmtSan(reply.san, pt)}.`);
       }
-      tags.push('hanging');
+      if (!tags.includes('ignoredthreat')) tags.push('hanging');
     }
   }
   if (!reasons.length && reply && !reply.captured) {
@@ -210,6 +216,24 @@ function explain(i, fens, moves, evals, info, pt) {
     reasons.push(`Era hora de rocar (${bestSan}) e colocar o rei em segurança.`);
     tags.push('king');
   }
+  if (!reasons.length && mv.captured && reply && reply.captured && reply.to === mv.to && VAL[reply.captured] > VAL[mv.captured] + 0) {
+    reasons.push(`Você capturou ${unit(mv.captured)}, mas o adversário recaptura ${unit(reply.captured)}: uma troca desfavorável. Conte os valores antes de trocar.`);
+    tags.push('badtrade');
+  }
+  if (!reasons.length && eb.pv && eb.pv.length >= 3 && info.loss >= 12) {
+    try {
+      const gp = new Chess(fen); const base = matBal(gp, mover);
+      for (const u of eb.pv.slice(0, 4)) gp.move({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u[4] });
+      if (matBal(gp, mover) - base >= 2) {
+        reasons.push(`Havia uma combinação que ganhava material: ${bestSan}${eb.pv.length > 1 ? ' e a sequência seguinte' : ''}. Antes de jogar, procure xeques, capturas e ameaças.`);
+        tags.push('missedtactic');
+      }
+    } catch (e) {}
+  }
+  if (!reasons.length && info.ply < 16 && (mv.piece === 'n' || mv.piece === 'b') && moves.slice(0, i).some((x) => x.color === mover && x.to === mv.from && x.piece === mv.piece)) {
+    reasons.push('Você moveu a mesma peça duas vezes na abertura enquanto outras ficaram paradas. Desenvolva uma peça nova a cada lance.');
+    tags.push('twice');
+  }
   if (!reasons.length && mv.piece === 'q' && info.ply < 12) {
     reasons.push('Mover a dama cedo na abertura costuma perder tempo: ela pode ser atacada e você atrasa o desenvolvimento das outras peças.');
     tags.push('earlyqueen');
@@ -231,7 +255,9 @@ function explain(i, fens, moves, evals, info, pt) {
     tags.push('openingpawn');
   }
   if (!reasons.length) {
-    reasons.push(bestSan ? `O motor prefere ${bestSan}, que mantém a posição mais sólida.` : 'Havia uma continuação melhor.');
+    let idea = '';
+    try { if (eb.best) { const w = whyMove(fen, eb.best, info.ply, eb); if (w.length && !/Melhora a posição/.test(w[0])) idea = ' ' + w[0]; } } catch (e) {}
+    reasons.push(bestSan ? `O melhor era ${bestSan}.${idea || ' Ele mantém a posição mais sólida.'}` : 'Havia uma continuação melhor.');
     tags.push('generic');
   }
   const pvSan = [];
@@ -432,6 +458,9 @@ export function openingsList() {
     } catch (e) {}
   }
   return out;
+}
+export function openingLines() {
+  return OPENINGS.map(([name, line]) => ({ name, desc: openingDesc(name), ucis: line.split(' ') }));
 }
 export function openingDesc(name) {
   const h = OP_DESC.find(([k]) => name.includes(k));

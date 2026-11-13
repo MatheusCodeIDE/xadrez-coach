@@ -2,7 +2,9 @@ import { Chess } from './lib/chess.js';
 import { Board } from './board.js';
 import { Engine, LEVELS, toCp } from './engine.js';
 import { initTrain } from './train.js';
-import { openingsList, analyzeGame, classify, summarize, evalFen, judgeAt, whyMove, bookStatus, bookSans, openingInfo, openingDesc, CLS, BAD, winPct, fmtSan, replay } from './analysis.js';
+import { initEndgames } from './endgames.js';
+import { initOpenings } from './openings.js';
+import { openingsList, openingLines, analyzeGame, classify, summarize, evalFen, judgeAt, whyMove, bookStatus, bookSans, openingInfo, openingDesc, CLS, BAD, winPct, fmtSan, replay } from './analysis.js';
 
 /* ---------- utilidades ---------- */
 const $ = (s, r = document) => r.querySelector(s);
@@ -165,14 +167,16 @@ function pageHome() {
   const gs = gameStats(); const acc = avgAccuracy(); const ts = TR.totals();
   const lvlTxt = (g) => `${g.color === 'w' ? 'Brancas' : 'Pretas'} · ${lvName(g.levelId)}${g.mode === 'teach' ? ' · Ensino' : ''}`;
   const tile = (ic, big, small) => `<div class="stile"><div class="ic">${ic}</div><b>${big}</b><span>${small}</span></div>`;
-  $('#view-home').innerHTML = `<div class="page">${topBar()}
+  $('#view-home').innerHTML = `<div class="page">${topBar()}<div class="cols"><div class="colA">
     <div class="hero2" id="h-daily"><div><small>Desafio do dia</small><h2>Problemas</h2><p>${TR.dailyDone() ? '✅ Feito hoje! Volte amanhã.' : 'Um novo desafio tático espera por você.'}</p></div><div class="mascot" style="width:84px;height:84px"></div><button class="btn primary">${TR.dailyDone() ? 'Rever' : 'Resolva!'}</button></div>
     ${cur ? `<div class="card slim"><h3>Partida em andamento</h3><div class="row"><div class="grow muted" style="font-size:14px">${cur.ucis.length} lances · ${lvName(cur.levelId)}${cur.mode === 'teach' ? ' · Ensino' : ''}</div><button class="btn primary small" id="h-resume">Continuar</button></div></div>` : ''}
     <div class="sec"><h3>Estatísticas</h3><button class="lnk" id="h-allst">Ver todos</button></div>
     <div class="hscroll">${tile('♟', gs.n, 'Partidas')}${tile('🏆', gs.w, 'Vitórias')}${tile('🎯', acc === null ? '—' : acc + '%', 'Precisão média')}${tile('🧩', ts.solved, 'Problemas resolvidos')}${tile('📈', myRating(), 'Rating estimado')}</div>
+    </div><div class="colB">
     <div class="sec"><h3>Minhas partidas</h3>${list.length > 4 ? '<button class="lnk" id="h-allg">Ver todas</button>' : ''}</div>
     <div class="card slim">${list.length ? list.slice(0, 4).map((g) => histRow(g, lvlTxt)).join('') : '<div class="muted" style="font-size:14px">Nenhuma partida ainda. Toque em <b>Jogar</b> e depois peça a análise no final!</div>'}
       <button class="btn small" id="h-import" style="width:100%;margin-top:10px">Importar PGN (de outro app)</button></div>
+    </div></div>
     <div style="height:150px"></div></div>
     <button id="playbtn" class="playbtn">Jogar</button>`;
   const v = $('#view-home');
@@ -183,11 +187,18 @@ function pageHome() {
   const ag = $('#h-allg'); if (ag) ag.onclick = () => showAllGames();
   bindHist(v); $('#h-import').onclick = importPgnDialog;
 }
+const ACC = new Map();
+function accOf(g) {
+  if (!g.analysis || !g.analysis.evals) return null;
+  if (ACC.has(g.id)) return ACC.get(g.id);
+  let v = null; try { const r = classify(g.start, g.ucis, g.analysis.evals, g.color); v = Math.round(summarize(r.info, g.color, g.ucis).me.acc); } catch (e) {}
+  ACC.set(g.id, v); return v;
+}
 function histRow(g, lvlTxt) {
-  const [c, t] = resCls(g);
+  const [c, t] = resCls(g); const acc = accOf(g);
   return `<div class="hist" data-id="${g.id}"><div class="res ${c}">${t}</div>
-    <div class="meta"><b>${lvlTxt(g)}</b><span>${new Date(g.date).toLocaleDateString('pt-BR')} · ${g.ucis.length} lances${g.analysis ? ' · analisada' : ''}${g.ranked ? ' · ranqueada' + (g.delta !== undefined ? ' (' + (g.delta >= 0 ? '+' : '−') + Math.abs(g.delta) + ')' : '') : ''}</span></div>
-    <button class="btn small" data-a="${g.id}">Analisar</button><button class="ibtn" data-d="${g.id}" style="width:34px;height:34px;font-size:14px">✕</button></div>`;
+    <div class="meta"><b>${lvlTxt(g)}</b><span>${new Date(g.date).toLocaleDateString('pt-BR')} · ${g.ucis.length} lances${g.ranked ? ' · ranqueada' + (g.delta !== undefined ? ' (' + (g.delta >= 0 ? '+' : '−') + Math.abs(g.delta) + ')' : '') : ''}</span></div>
+    <button class="btn small ${acc !== null ? 'accb' : ''}" data-a="${g.id}">${acc !== null ? '★ ' + acc + '%' : 'Analisar'}</button><button class="ibtn" data-d="${g.id}" style="width:34px;height:34px;font-size:14px">✕</button></div>`;
 }
 function bindHist(v) {
   v.querySelectorAll('[data-a]').forEach((b) => (b.onclick = () => openAnalysis(games().find((g) => g.id === b.dataset.a))));
@@ -210,10 +221,12 @@ function pageTrain() {
     <p class="muted" style="font-size:12.5px;margin:-4px 4px 10px;line-height:1.4">🧊 Perdoa 1 dia perdido por semana: ${TR.freezeAvail() ? 'seu congelamento está disponível.' : 'já usado esta semana.'}</p>
     <button class="hub" id="t-tac"><i>♞</i><div><b>Táticas</b><span id="t-tac-s">${ts.n ? `${ts.solved}/${ts.n} resolvidos · do Fácil ao Impossível` : 'Do Fácil ao Impossível'}</span></div><em>›</em></button>
     <button class="hub" id="t-vis"><i>👁</i><div><b>Enxergar o tabuleiro</b><span>Casas, cores e peças soltas</span></div><em>›</em></button>
+    <button class="hub" id="t-end"><i>♚</i><div><b>Finais</b><span>Mate com dama e torre, rei e peão, Lucena</span></div><em>›</em></button>
+    <button class="hub" id="t-opn"><i>📖</i><div><b>Treino de aberturas</b><span>${OPN.mastered()} dominadas · pratique a linha de livro</span></div><em>›</em></button>
     <button class="hub" id="t-rev"><i>🔁</i><div><b>Revisar meus erros</b><span>${TR.reviewCount() ? TR.reviewCount() + ' lances das suas partidas' : 'Analise uma partida primeiro'}</span></div><em>›</em></button>
     <div style="height:90px"></div></div>`;
   const b = (id, f) => { const e = $(id); if (e) e.onclick = f; };
-  b('#t-day', () => TR.startDaily()); b('#t-tac', () => TR.menuTactics()); b('#t-vis', () => TR.menuVis()); b('#t-rev', () => TR.startReview());
+  b('#t-day', () => TR.startDaily()); b('#t-tac', () => TR.menuTactics()); b('#t-vis', () => TR.menuVis()); b('#t-rev', () => TR.startReview()); b('#t-end', () => EG.menu()); b('#t-opn', () => OPN.menu());
   TR.ready().then(() => { const e = $('#t-tac-s'); if (e) { const t2 = TR.totals(); e.textContent = `${t2.solved}/${t2.n} resolvidos · do Fácil ao Impossível`; } });
 }
 
@@ -233,6 +246,40 @@ function pageLearn() {
   $('#view-home').querySelectorAll('[data-o]').forEach((b) => (b.onclick = () => { const o = ops[+b.dataset.o]; openModal(`<h3>${o.name}</h3><p class="muted" style="margin:6px 0;line-height:1.45">${o.desc}</p><div class="book" style="margin:8px 0 12px">Lances: <b>${o.moves}</b></div><button class="btn" id="x-c" style="width:100%">Fechar</button>`); $('#x-c').onclick = closeModal; }));
 }
 
+
+// séries para os gráficos de progresso
+function ratingSeries() {
+  const out = [{ r: 800 }]; let r = 800;
+  for (const g of games()) {
+    if (!g.ranked || !g.levelId || g.mode === 'teach' || !g.result || g.result === '*') continue;
+    const opp = lv(g.levelId).elo || 800; const sc = g.result === '1/2-1/2' ? 0.5 : (g.result === '1-0') === (g.color === 'w') ? 1 : 0;
+    r += 32 * (sc - 1 / (1 + Math.pow(10, (opp - r) / 400))); out.push({ r: Math.round(r) });
+  }
+  return out.map((o) => o.r);
+}
+function accSeries() {
+  const out = [];
+  for (const g of games()) {
+    if (!g.analysis || !g.analysis.evals) continue;
+    try { const r = classify(g.start, g.ucis, g.analysis.evals, g.color); out.push(Math.round(summarize(r.info, g.color, g.ucis).me.acc)); } catch (e) {}
+  }
+  return out;
+}
+function lineChart(vals, color, unit = '') {
+  vals = vals.slice(-30);
+  if (vals.length < 2) return '<div class="muted" style="font-size:13px;padding:6px 2px">Jogue mais partidas para ver o gráfico.</div>';
+  const W = 320, H = 110, pl = 30, pr = 8, pt = 10, pb = 10;
+  let lo = Math.min(...vals), hi = Math.max(...vals); if (hi - lo < 10) { lo -= 5; hi += 5; }
+  const x = (i) => pl + (i * (W - pl - pr)) / (vals.length - 1), y = (v) => pt + (H - pt - pb) * (1 - (v - lo) / (hi - lo));
+  const pts = vals.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+  const area = `${pl},${H - pb} ${pts} ${x(vals.length - 1).toFixed(1)},${H - pb}`;
+  const last = vals[vals.length - 1], d = last - vals[0];
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block"><polygon points="${area}" fill="${color}" opacity=".15"/><polyline points="${pts}" fill="none" stroke="${color}" stroke-width="2.5" stroke-linejoin="round"/>
+    <text x="2" y="${y(hi) + 4}" fill="#8d8a83" font-size="10">${Math.round(hi)}</text><text x="2" y="${y(lo) + 3}" fill="#8d8a83" font-size="10">${Math.round(lo)}</text>
+    <circle cx="${x(vals.length - 1)}" cy="${y(last)}" r="4" fill="${color}"/></svg>
+    <div class="muted" style="font-size:12.5px;margin-top:2px">Agora: <b style="color:#fff">${last}${unit}</b> · ${d >= 0 ? '+' : ''}${d}${unit} no período (${vals.length} ${unit ? 'partidas' : 'pontos'})</div>`;
+}
+
 function pageMe() {
   const p = profile(); const gs = gameStats(); const acc = avgAccuracy(); const ts = TR.totals(); const pg = TR.progress();
   const row = (a, b) => `<div class="kv"><span>${a}</span><b>${b}</b></div>`;
@@ -242,6 +289,11 @@ function pageMe() {
       <input id="p-name" class="txt" maxlength="20" value="${p.name}" placeholder="Seu nome"></div>
     <div class="sec"><h3>Estatísticas</h3></div>
     <div class="card slim">${row('Rating estimado', myRating())}${row('Partidas', gs.n)}${row('Vitórias · Empates · Derrotas', `${gs.w} · ${gs.d} · ${gs.l}`)}${row('Precisão média', acc === null ? '—' : acc + '%')}${row('Problemas resolvidos', `${ts.solved}/${ts.n}`)}${row('Sequência de dias', `${TR.streak()} (recorde ${pg.streak.best})`)}${row('🧊 Congelamento da semana', TR.freezeAvail() ? 'disponível' : 'já usado')}${row('Recorde: achar a casa', pg.vis.coord || 0)}${row('Recorde: cor da casa', pg.vis.color || 0)}${row('Recorde: peças soltas', (pg.vis.hang || 0) + '/8')}</div>
+    <div class="sec"><h3>Progresso</h3></div>
+    <div class="card slim"><div class="lbl" style="margin-top:0">Rating estimado (partidas ranqueadas)</div>${lineChart(ratingSeries(), '#81b64c')}
+      <div class="lbl">Precisão (partidas analisadas)</div>${lineChart(accSeries(), '#5c8bb0', '%')}</div>
+    <div class="sec"><h3>Seus erros mais comuns</h3></div>
+    <div class="card slim" id="pat">${(() => { const pt = TR.patterns(); if (!pt.total) return '<p class="muted" style="font-size:14px;line-height:1.4">Analise suas partidas (toque em <b>Analisar</b>) para ver quais erros mais se repetem.</p>'; const mx = pt.list[0].n; return `<p class="muted" style="font-size:13px;margin-bottom:8px">Com base em ${pt.total} ${pt.total === 1 ? "erro ou capivarada" : "erros e capivaradas"} das suas partidas analisadas.</p>` + pt.list.slice(0, 5).map((o) => `<div class="patrow"><div class="pl"><b>${o.name}</b><span>${o.n}×</span></div><div class="pb"><i style="width:${Math.round((o.n / mx) * 100)}%"></i></div><small>${o.tip}</small><button class="btn small" data-pt="${o.tag}">Treinar este erro</button></div>`).join(''); })()}</div>
     <div class="sec"><h3>Ajustes</h3></div>
     <div class="card slim"><div class="lbl" style="margin-top:0">Tabuleiro</div>
       <div class="themes" id="h-themes">${Object.entries(THEMES).map(([k, t]) => `<button class="theme ${opts.theme === k ? 'on' : ''}" data-th="${k}"><i style="background:${t[0]}"></i><i style="background:${t[1]}"></i><i style="background:${t[1]}"></i><i style="background:${t[0]}"></i></button>`).join('')}</div>
@@ -257,6 +309,7 @@ function pageMe() {
   const v = $('#view-home');
   v.querySelectorAll('[data-av]').forEach((b) => (b.onclick = () => { const q = profile(); q.av = b.dataset.av; store.set('xq.profile', q); renderHome(); }));
   $('#p-name').onchange = (e) => { const q = profile(); q.name = e.target.value.trim() || 'Jogador'; store.set('xq.profile', q); toast('Nome salvo'); };
+  v.querySelectorAll('[data-pt]').forEach((b) => (b.onclick = () => TR.startReview(b.dataset.pt)));
   v.querySelectorAll('.theme').forEach((b) => (b.onclick = () => { opts.theme = b.dataset.th; applyTheme(opts.theme); saveOpts(); renderHome(); }));
   v.querySelectorAll('#h-comm button').forEach((b) => (b.onclick = () => { opts.tcomm = b.dataset.q; saveOpts(); renderHome(); }));
   v.querySelectorAll('#h-snd button').forEach((b) => (b.onclick = () => { muted = b.dataset.s === '0'; store.set('xq.mute', muted); renderHome(); }));
@@ -421,7 +474,7 @@ function buildGameView() {
     getTargets: (sq) => G.game.moves({ square: sq, verbose: true }).map((m) => ({ to: m.to, capture: !!m.captured })),
     onMove: userMove,
   });
-  $('#g-back').onclick = () => { G.gen++; G.teach.tt++; stopClock(); renderHome(); };
+  $('#g-back').onclick = () => leaveGame(() => { G.gen++; G.teach.tt++; stopClock(); renderHome(); });
   $('#g-mute').onclick = () => { muted = !muted; store.set('xq.mute', muted); $('#g-mute').textContent = muted ? '🔇' : '🔊'; };
   $('#g-undo').onclick = undoMove;
   $('#g-hint').onclick = giveHint;
@@ -455,8 +508,17 @@ document.addEventListener('click', (e) => {
   if (id === 'm-ana') { closeModal(); if (G.ucis.length < 2) return toast('Jogue alguns lances primeiro.'); if (G.ranked && !G.over) return toast('Partida ranqueada: a análise só fica disponível depois do fim.'); G.gen++; stopClock(); const rec = { id: uid(), date: Date.now(), start: G.start, ucis: G.ucis.slice(), color: G.color, levelId: G.levelId, result: '*' }; openAnalysis(rec, true); }
   if (id === 'm-pgn') { closeModal(); copyPgn(); }
   if (id === 'm-res') { closeModal(); if (!G.over && G.ucis.length) finishGame(G.color === 'w' ? '0-1' : '1-0', 'Você desistiu.'); }
-  if (id === 'm-new') { closeModal(); G.gen++; stopClock(); renderHome(); }
+  if (id === 'm-new') { closeModal(); leaveGame(() => { G.gen++; stopClock(); renderHome(); }); }
 });
+// sair de partida ranqueada no meio conta como derrota
+function leaveGame(go) {
+  const played = G.color === 'w' ? G.ucis.length >= 1 : G.ucis.length >= 2;
+  if (!G.ranked || G.over || !played) return go();
+  openModal(`<h3>Sair da partida ranqueada?</h3><p class="muted" style="margin:6px 0 14px;line-height:1.45">Partida ranqueada vale rating. Se sair agora, ela conta como <b>derrota</b>.</p>
+    <div style="display:flex;flex-direction:column;gap:8px"><button class="btn primary" id="lv-stay">Continuar jogando</button><button class="btn" id="lv-quit">Sair e aceitar a derrota</button></div>`);
+  $('#lv-stay').onclick = closeModal;
+  $('#lv-quit').onclick = () => { closeModal(); finishGame(G.color === 'w' ? '0-1' : '1-0', 'Você abandonou a partida.'); };
+}
 function copyPgn() {
   const g = new Chess(); if (G.start) g.load(G.start);
   for (const u of G.ucis) g.move({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u[4] });
@@ -643,13 +705,46 @@ function finishGame(result, text) {
   saveGames(all); store.del('xq.current');
   const ratingLine = rec.ranked ? `<div style="text-align:center;margin:-4px 0 12px"><span style="font-size:13px;color:var(--mut)">Rating estimado</span><div style="font-size:30px;font-weight:800">${rec.ratingAfter} <span style="color:${rec.delta >= 0 ? '#81b64c' : '#ff6b61'}">${rec.delta >= 0 ? '+' : '−'}${Math.abs(rec.delta)}</span></div></div>` : `<p class="muted" style="font-size:13px;margin:-6px 0 12px">${G.mode === 'teach' ? 'Modo Ensino não conta no rating.' : 'Partida de treino: não conta no rating.'}</p>`;
   renderGame();
+  const cfg = { color: G.color === 'w' ? 'b' : 'w', levelId: G.levelId, mode: G.mode, ranked: G.ranked, tc: G.tc, inc: G.inc };
   setTimeout(() => {
-    openModal(`<h3>${title}</h3><p class="muted" style="margin:4px 0 14px">${text}</p>${ratingLine}
-      <div style="display:flex;flex-direction:column;gap:8px"><button class="btn primary" id="e-ana">📊 Ver análise completa</button><button class="btn" id="e-new">Nova partida</button><button class="btn" id="e-close">Ver tabuleiro</button></div>`);
+    openModal(`<div class="endcard"><h3>${title}</h3><p class="muted" style="margin:2px 0 12px">${text}</p>${ratingLine}
+      <div id="e-say">${coachHTML({ title: '<span class="spinner"></span>Analisando seu jogo…', text: 'Já já mostro seus acertos e erros.' })}</div>
+      <div id="e-stats"></div>
+      <button class="btn primary" id="e-ana" disabled style="width:100%;margin-top:12px">📊 Revisão da partida</button>
+      <div class="row" style="margin-top:8px"><button class="btn grow" id="e-rev">⇄ Revanche</button><button class="btn grow" id="e-new">Nova partida</button></div>
+      <button class="btn" id="e-close" style="width:100%;margin-top:8px">Ver tabuleiro</button></div>`);
     $('#e-ana').onclick = () => { closeModal(); openAnalysis(rec); };
     $('#e-new').onclick = () => { closeModal(); renderHome(); };
+    $('#e-rev').onclick = () => { closeModal(); startGame(cfg); };
     $('#e-close').onclick = closeModal;
+    endAnalysis(rec);
   }, 600);
+}
+
+// análise rápida logo ao fim da partida: acertos, erros e precisão
+async function endAnalysis(rec) {
+  const live = () => !!$('#e-say');
+  if (rec.ucis.length < 4) { if (live()) { $('#e-say').innerHTML = coachHTML({ title: 'Partida curta', text: 'Jogue mais lances para ter uma análise.' }); $('#e-ana').disabled = false; } return; }
+  try {
+    let evals = rec.analysis && rec.analysis.evals;
+    if (!evals) {
+      evals = await analyzeGame(getAnaEngine(), rec.start, rec.ucis, { depth: 10, onProgress: (i, n) => { const t = $('#e-say .tx'); if (t) t.textContent = `Analisando posição ${i} de ${n}…`; } });
+      rec.analysis = { evals };
+      const all = games(); const k = all.findIndex((g) => g.id === rec.id); if (k >= 0) { all[k] = rec; saveGames(all); }
+    }
+    const r = classify(rec.start, rec.ucis, evals, rec.color); const sm = summarize(r.info, rec.color, rec.ucis);
+    ACC.delete(rec.id);
+    if (!live()) return;
+    const me = sm.me || (rec.color === 'w' ? sm.w : sm.b); const acc = Math.round(me.acc);
+    const c = me.counts;
+    const chips = ['brilliant', 'great', 'best', 'excellent', 'good', 'inaccuracy', 'mistake', 'blunder'].filter((k) => c[k] > 0)
+      .map((k) => `<div class="est"><i class="bd2" style="background:${CLS[k].color}">${CLS[k].sym}</i><b>${c[k]}</b><span>${CLS[k].label}</span></div>`).join('');
+    const bad = c.blunder + c.mistake;
+    const say = acc >= 90 ? 'Partida excelente, quase sem erros!' : bad === 0 ? 'Boa partida, sem erros graves.' : `Vamos rever alguns momentos importantes. Você teve ${c.blunder ? c.blunder + ' capivarada' + (c.blunder > 1 ? 's' : '') : ''}${c.blunder && c.mistake ? ' e ' : ''}${c.mistake ? c.mistake + ' erro' + (c.mistake > 1 ? 's' : '') : ''}.`;
+    $('#e-say').innerHTML = coachHTML({ title: say });
+    $('#e-stats').innerHTML = `<div class="eacc"><b>${acc}%</b><span>Sua precisão</span></div><div class="ests">${chips}</div>`;
+    $('#e-ana').disabled = false;
+  } catch (e) { if (live()) { $('#e-say').innerHTML = coachHTML({ title: 'Não consegui analisar agora', text: 'Use a Revisão da partida para tentar de novo.' }); $('#e-ana').disabled = false; } }
 }
 
 /* ----- Modo Ensino ----- */
@@ -991,7 +1086,10 @@ function openSummary() {
 }
 
 TR = initTrain({ $, store, toast, openModal, closeModal, show, Board, Chess, coachHTML, whyBox, animList, kingSq, fmtSan, askPromotion, beep, renderHome, getAnaEngine, games, openAnalysis, winPct, classify, whyMove });
+const OPN = initOpenings({ $, store, toast, openModal, closeModal, show, Board, Chess, coachHTML, animList, kingSq, fmtSan, askPromotion, beep, renderHome, openingLines, whyMove });
+const EG = initEndgames({ $, store, toast, openModal, closeModal, show, Board, Chess, coachHTML, animList, kingSq, fmtSan, askPromotion, beep, renderHome, getAnaEngine });
 
 /* ---------- início ---------- */
 if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(() => {});
-renderHome();
+TR.touch(); renderHome();
+TR.ready().then(() => { if (tab === 'me' || tab === 'home') renderHome(); });

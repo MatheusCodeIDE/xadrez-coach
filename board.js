@@ -61,6 +61,11 @@ export class Board {
   }
 
   render() {
+    if (this.state.anim && this.state.anim.length) { if (this._defT) { clearTimeout(this._defT); this._defT = null; } }
+    else if (this._animAt && Date.now() - this._animAt < 560) {
+      if (!this._defT) this._defT = setTimeout(() => { this._defT = null; this.render(); }, 570 - (Date.now() - this._animAt));
+      return;
+    }
     const { fen, last, check, arrows, badge, marks, noCoords } = this.state;
     const emptyBoard = fen.startsWith('8/8/8/8/8/8/8/8');
     const pieces = parseFen(fen);
@@ -94,18 +99,23 @@ export class Board {
     const prev = this._prev; this._prev = pieces;
     const anim = this.state.anim;
     if (anim && anim.length && !this._noAnim) this._animate(anim, prev, pieces);
-    this._noAnim = false;
+    this._noAnim = false; this._dropPt = null;
     this.state.anim = null;
   }
 
   _animate(list, prev, now) {
+    this._animAt = Date.now();
     list.forEach((a, idx) => {
       const sq = this.root.querySelector(`[data-sq="${a.to}"]`);
       const el = sq && sq.querySelector('.pc');
       if (!el) return;
       const A = this._pos(a.from), B = this._pos(a.to);
       el.style.transition = 'none';
-      el.style.transform = `translate(${(A.c - B.c) * 100}%,${(A.r - B.r) * 100}%)`;
+      const dp = this._dropPt;
+      if (idx === 0 && dp && dp.to === a.to) {
+        const r = sq.getBoundingClientRect();
+        el.style.transform = `translate(${((dp.x - (r.left + r.width / 2)) / r.width) * 100}%,${((dp.y - (r.top + r.height / 2)) / r.height) * 100}%)`;
+      } else el.style.transform = `translate(${(A.c - B.c) * 100}%,${(A.r - B.r) * 100}%)`;
       el.style.zIndex = 6;
       if (idx === 0 && prev[a.to] && prev[a.to] !== now[a.to]) {
         const g = document.createElement('div');
@@ -191,9 +201,7 @@ export class Board {
     if (d.moved && to && to !== d.from && this.targets.some((t) => t.to === to)) {
       const from = d.from;
       this.selected = null; this.targets = [];
-      this._noAnim = true;
-      this.render();
-      this._noAnim = true;
+      this._dropPt = { x: e.clientX, y: e.clientY, to };
       this.opts.onMove(from, to);
     }
   }

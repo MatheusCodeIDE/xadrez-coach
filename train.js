@@ -238,14 +238,44 @@ export function initTrain(C) {
         r.info.forEach((o, i) => {
           if (o.side !== rec.color || !(o.cls === 'mistake' || o.cls === 'blunder') || !o.bestSan) return;
           const ev = rec.analysis.evals[i]; if (!ev || !ev.best) return;
-          items.push({ id: rec.id + ':' + i, kind: 'review', fen: r.fens[i], side: rec.color, sol: [ev.best], cp: ev.cp, san: fmtSan(o.san), clsLabel: o.cls === 'blunder' ? 'uma capivarada' : 'um erro', bestSan: o.bestSan, theme: 'review', why: o.why || [], level: 0, sev: o.loss });
+          items.push({ id: rec.id + ':' + i, kind: 'review', fen: r.fens[i], side: rec.color, sol: [ev.best], cp: ev.cp, san: fmtSan(o.san), clsLabel: o.cls === 'blunder' ? 'uma capivarada' : 'um erro', bestSan: o.bestSan, theme: 'review', why: o.why || [], level: 0, sev: o.loss, tags: o.tags || [] });
         });
       } catch (e) {}
     }
     return items.slice(0, 80);
   }
-  function startReview() {
-    const items = reviewItems();
+  const TAGN = {
+    hanging: ['Peças penduradas', 'Você deixa peças sem proteção. Antes de cada lance: "o que ele pode capturar de graça?"'],
+    fork: ['Garfos sofridos', 'Cavalos e peões atacam duas peças ao mesmo tempo. Veja onde o cavalo dele pode pular.'],
+    mate: ['Mates sofridos', 'Seu rei ficou exposto. Procure os xeques do adversário antes de mover.'],
+    missedmate: ['Mates perdidos', 'Havia mate e você não viu. Procure todos os xeques toda vez.'],
+    missedcapture: ['Capturas perdidas', 'Peças soltas do adversário passaram batido. Pergunte: o que dele está sem proteção?'],
+    missedcheck: ['Xeques fortes perdidos', 'Antes de decidir, olhe todos os xeques, mesmo os que parecem inúteis.'],
+    king: ['Segurança do rei', 'Role cedo e mantenha o rei protegido.'],
+    earlyqueen: ['Dama cedo demais', 'Na abertura, desenvolva cavalos e bispos antes de sair com a dama.'],
+    thrownadv: ['Vantagem jogada fora', 'Com vantagem, simplifique e confira as ameaças antes de atacar.'],
+    worse: ['Posição piorada', 'Lances que pioram a posição sem perder material. Procure o lance mais sólido.'],
+    openingpawn: ['Lances de peão na abertura', 'Priorize cavalos, bispos e o centro; evite mexer peões laterais sem motivo.'],
+    ignoredthreat: ['Ameaças ignoradas', 'Você não reagiu a uma ameaça do adversário. Antes de cada lance, olhe o que ele acabou de atacar.'],
+    badtrade: ['Trocas desfavoráveis', 'Conte os valores (peão 1, cavalo/bispo 3, torre 5, dama 9) antes de trocar.'],
+    missedtactic: ['Táticas perdidas', 'Havia uma combinação que ganhava material. Procure xeques, capturas e ameaças.'],
+    twice: ['Mesma peça duas vezes', 'Na abertura, cada lance deve desenvolver uma peça nova.'],
+    generic: ['Outros erros', 'Erros diversos. Revise as posições para ganhar reflexo.'],
+  };
+  function patterns() {
+    const c = {}; let total = 0;
+    for (const rec of games()) {
+      if (!rec.analysis || !rec.analysis.evals) continue;
+      try {
+        const r = classify(rec.start, rec.ucis, rec.analysis.evals, rec.color);
+        r.info.forEach((o) => { if (o.side !== rec.color || !(o.cls === 'mistake' || o.cls === 'blunder')) return; total++; const t = (o.tags && o.tags[0]) || 'generic'; c[t] = (c[t] || 0) + 1; });
+      } catch (e) {}
+    }
+    return { total, list: Object.entries(c).sort((a, b) => b[1] - a[1]).map(([k, n]) => ({ tag: k, n, name: (TAGN[k] || TAGN.generic)[0], tip: (TAGN[k] || TAGN.generic)[1] })) };
+  }
+  function startReview(tag) {
+    let items = reviewItems();
+    if (tag) items = items.filter((x) => (x.tags && x.tags[0] || 'generic') === tag);
     if (!items.length) return openModal(`<h3>Revisar meus erros</h3><p class="muted" style="margin:8px 0 14px;line-height:1.45">Ainda não há erros para revisar. Jogue uma partida e toque em <b>Analisar</b> na tela inicial: os seus erros e capivaradas viram desafios aqui.</p><button class="btn primary" id="x-ok" style="width:100%">Ok</button>`) || ($('#x-ok').onclick = closeModal);
     startPuzzles(items, 'Meus erros', 'review', { backTo: () => renderHome('train') });
   }
@@ -366,5 +396,5 @@ export function initTrain(C) {
     nextRound();
   }
 
-  return { menuTactics, menuVis, startReview, startDaily, streak: streakNow, freezeAvail, totals, dailyDone, reviewCount, progress: prog, ready: load };
+  return { patterns, touch: touchStreak, menuTactics, menuVis, startReview, startDaily, streak: streakNow, freezeAvail, totals, dailyDone, reviewCount, progress: prog, ready: load };
 }

@@ -418,3 +418,69 @@ body.pplay .playbtn{bottom:calc(14px + var(--sab))}
 #view-home{min-height:0;padding-bottom:0}
 .avs.big{overflow:visible;width:92px;height:92px}
 .avs.big .pc{inset:14px}
+/* v12: cartão do jogador — nome em cima, capturas embaixo, relógio menor */
+.pcard .pinfo,.pcard.slim .pinfo{flex:1;min-width:0;margin:0;height:auto;background:none;border-radius:0;padding:0;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:1px;font-size:inherit;color:inherit}
+.pcard .pinfo b{color:#fff}
+.pcard .pinfo .pcap{margin-top:1px;height:16px;max-width:100%;overflow:hidden;color:var(--mut);letter-spacing:0}
+.pcard .pinfo .pcap span{color:var(--mut)}
+.pcard .pnm{font-size:16px;max-width:100%}
+.pcard .clock{min-width:78px;padding:6px 10px;font-size:20px;border-radius:6px;flex:none}
+.pcard.slim .clock{min-width:70px;padding:4px 8px;font-size:18px}
+/* v15: padrões de erro e gráficos */
+.patrow{padding:8px 0;border-top:1px solid #3a3835}.patrow:first-of-type{border-top:0}
+.patrow .pl{display:flex;justify-content:space-between;font-size:15px}.patrow .pl span{color:#f7c631;font-weight:700}
+.patrow .pb{height:6px;border-radius:3px;background:#3a3835;margin:6px 0}.patrow .pb i{display:block;height:100%;border-radius:3px;background:#ca3431}
+.patrow small{display:block;color:var(--mut);font-size:12.5px;line-height:1.4;margin-bottom:6px}
+.patrow button{width:100%}
+/* v16: cartão de fim de partida */
+.endcard h3{text-align:center;font-size:24px}.endcard>p{text-align:center}
+.eacc{text-align:center;margin:12px 0 6px}.eacc b{font-size:44px;font-weight:800;display:block;line-height:1}.eacc span{font-size:13px;color:var(--mut)}
+.ests{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:8px}
+.est{background:var(--bg);border-radius:10px;padding:8px 2px;text-align:center;display:flex;flex-direction:column;align-items:center;gap:2px}
+.est b{font-size:20px}.est span{font-size:11px;color:var(--mut)}
+.est .bd2{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;font-size:11px;font-weight:800;color:#fff}
+.btn.accb{color:#c4e08e}
+.cols{display:block}
+
+/* v16: iPad e telas largas */
+@media (min-width:700px){
+  .view{max-width:1100px}
+  .page{max-width:760px}
+  .page:has(.cols){max-width:1100px;padding:10px 24px 0}
+  .cols{display:grid;grid-template-columns:1.05fr 1fr;gap:22px;align-items:start}
+  .modal-card{width:min(540px,100%)}
+  .playbtn{max-width:560px}
+  .tabbar{justify-content:center;gap:24px}.tabbar button{max-width:220px}
+  .topbar{padding:8px 4px 14px}
+}
+@media (min-width:700px) and (orientation:portrait){
+  .screen{max-width:780px;--bs:min(100vw,780px,calc(100dvh - var(--fx,300px) - var(--sat) - var(--sab)))}
+}
+@media (min-width:900px) and (orientation:landscape){
+  #view-game .screen,#view-analysis .screen,#view-train .screen.pz{
+    --bs:min(calc(100dvh - 96px - var(--sat) - var(--sab)),calc(100vw - 460px),800px);
+    max-width:1320px;width:100%;height:calc(100dvh - var(--sat) - var(--sab));padding:0 18px;
+    display:grid;grid-template-columns:var(--bs) minmax(320px,1fr);grid-template-rows:auto auto auto minmax(0,1fr) auto auto;
+    grid-template-areas:"hdr hdr" "board top" "board eval" "board mid" "board dock" "board bot";column-gap:22px;overflow:hidden;
+  }
+  .screen .hdr{grid-area:hdr}
+  .screen .boardwrap{grid-area:board;align-self:start;justify-content:flex-start;padding-bottom:0}
+  .screen #g-top,.screen > .pinfo{grid-area:top}
+  .screen #g-bot{grid-area:bot;align-self:end}
+  .screen .hbar{grid-area:eval}
+  .screen .strip.bar,.screen #g-coach,.screen #a-coach,.screen #p-coach,.screen #q-coach{grid-area:mid;min-height:0;overflow:auto}
+  .screen .dock,.screen .tbp{grid-area:dock}
+  .screen .sp{display:none}
+  .screen .strip.bar{flex-wrap:wrap;height:auto;max-height:100%;white-space:normal;align-content:flex-start;padding:10px;overflow-y:auto;border:0;border-radius:10px;background:#1d1c1a;margin:6px 0}
+  .screen .strip.bar .mv{font-size:18px}
+  .screen .pcard{padding:8px 4px}
+  .screen .tb4{padding:6px 0 10px}
+}
+/* v16: peças do perfil em "busto": grandes, inclinadas e cortadas na base, como o cavalo */
+.topbar .avs.me .pc:not(.pc-wn),.avs.big .pc:not(.pc-wn),.avpick .pc:not(.pc-wn){background-size:128% auto;background-position:50% 30%;background-repeat:no-repeat;transform:rotate(-8deg) translate(0,3%);filter:drop-shadow(0 3px 3px rgba(0,0,0,.45))}
+.avs.big{overflow:hidden;border-radius:22px}
+.avs.big .pc:not(.pc-wn){inset:0}
+.avpick button{overflow:hidden}
+.avpick .pc:not(.pc-wn){inset:0}
+.avs.big{width:110px;height:110px}
+.avs.big .pc:not(.pc-wn),.topbar .avs.me .pc:not(.pc-wn){width:100%;height:100%}
