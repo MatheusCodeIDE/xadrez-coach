@@ -1,5 +1,5 @@
 // Xadrez Coach — funciona offline. Troque o número da versão a cada atualização.
-const CACHE = 'xadrez-coach-v22';
+const CACHE = 'xadrez-coach-v23';
 const FILES = [
   './', './index.html', './style.css', './pieces.css', './app.js', './analysis.js', './board.js', './engine.js',
   './train.js', './ach.js', './endgames.js', './openings.js', './bots.js', './puzzles.json', './manifest.webmanifest',
@@ -9,7 +9,7 @@ const FILES = [
 
 self.addEventListener('install', (e) => {
   e.waitUntil(
-    caches.open(CACHE).then((c) => Promise.all(FILES.map((f) => c.add(f).catch(() => null)))).then(() => self.skipWaiting())
+    caches.open(CACHE).then((c) => Promise.all(FILES.map((f) => c.add(new Request(f, { cache: 'reload' })).catch(() => null)))).then(() => self.skipWaiting())
   );
 });
 
@@ -19,17 +19,19 @@ self.addEventListener('activate', (e) => {
   );
 });
 
-// cache primeiro (rápido e offline); se não houver, busca na rede e guarda
+// arquivos do app: rede primeiro (sempre a versão mais nova), cache como reserva offline.
+// motor (wasm) e imagens: cache primeiro (pesados e não mudam).
 self.addEventListener('fetch', (e) => {
   const req = e.request;
   if (req.method !== 'GET' || new URL(req.url).origin !== location.origin) return;
+  const heavy = /\.(wasm|png|svg)$|stockfish/.test(req.url);
+  const net = () => fetch(req, { cache: 'no-cache' }).then((res) => {
+    if (res && res.ok) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(req, copy)); }
+    return res;
+  });
   e.respondWith(
-    caches.match(req, { ignoreSearch: true }).then((hit) => {
-      if (hit) return hit;
-      return fetch(req).then((res) => {
-        if (res && res.ok) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(req, copy)); }
-        return res;
-      }).catch(() => caches.match('./index.html'));
-    })
+    heavy
+      ? caches.match(req, { ignoreSearch: true }).then((hit) => hit || net().catch(() => caches.match('./index.html')))
+      : net().catch(() => caches.match(req, { ignoreSearch: true }).then((hit) => hit || caches.match('./index.html')))
   );
 });
