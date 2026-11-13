@@ -117,15 +117,16 @@ const resCls = (g) => {
   const win = (g.result === '1-0') === (g.color === 'w');
   return win ? ['win', 'V'] : ['loss', 'D'];
 };
-function myRating() {
+function ratingOf(list) {
   let r = 800;
-  for (const g of games()) {
-    if (!g.levelId || g.mode === 'teach' || !g.result || g.result === '*') continue;
+  for (const g of list) {
+    if (!g.ranked || !g.levelId || g.mode === 'teach' || !g.result || g.result === '*') continue;
     const opp = lv(g.levelId).elo || 800; const sc = g.result === '1/2-1/2' ? 0.5 : (g.result === '1-0') === (g.color === 'w') ? 1 : 0;
     r += 32 * (sc - 1 / (1 + Math.pow(10, (opp - r) / 400)));
   }
   return Math.round(r);
 }
+const myRating = () => ratingOf(games());
 function avgAccuracy() {
   const accs = [];
   for (const g of games()) {
@@ -143,6 +144,7 @@ const avHTML = (av, cls = '') => `<div class="avs me ${cls}"><div class="pc pc-$
 const TABS = [['home', 'Início', '♟'], ['train', 'Desafios', '🧩'], ['learn', 'Aprender', '🎓'], ['me', 'Perfil', '👤']];
 
 function renderHome(t) {
+  const keep = !t || t === tab; const y = keep && !$('#view-home').classList.contains('hidden') ? window.scrollY : 0;
   if (t) tab = t;
   show('home'); stopClock();
   document.body.classList.toggle('pplay', tab === 'play');
@@ -150,6 +152,7 @@ function renderHome(t) {
   nav.innerHTML = TABS.map(([k, l, i]) => `<button data-t="${k}" class="${tab === k ? 'on' : ''}"><span>${i}</span>${l}</button>`).join('');
   nav.querySelectorAll('button').forEach((b) => (b.onclick = () => renderHome(b.dataset.t)));
   ({ home: pageHome, train: pageTrain, learn: pageLearn, me: pageMe, play: pagePlay }[tab] || pageHome)();
+  if (y) window.scrollTo(0, y);
 }
 
 function topBar() {
@@ -183,7 +186,7 @@ function pageHome() {
 function histRow(g, lvlTxt) {
   const [c, t] = resCls(g);
   return `<div class="hist" data-id="${g.id}"><div class="res ${c}">${t}</div>
-    <div class="meta"><b>${lvlTxt(g)}</b><span>${new Date(g.date).toLocaleDateString('pt-BR')} · ${g.ucis.length} lances${g.analysis ? ' · analisada' : ''}</span></div>
+    <div class="meta"><b>${lvlTxt(g)}</b><span>${new Date(g.date).toLocaleDateString('pt-BR')} · ${g.ucis.length} lances${g.analysis ? ' · analisada' : ''}${g.ranked ? ' · ranqueada' + (g.delta !== undefined ? ' (' + (g.delta >= 0 ? '+' : '−') + Math.abs(g.delta) + ')' : '') : ''}</span></div>
     <button class="btn small" data-a="${g.id}">Analisar</button><button class="ibtn" data-d="${g.id}" style="width:34px;height:34px;font-size:14px">✕</button></div>`;
 }
 function bindHist(v) {
@@ -204,6 +207,7 @@ function pageTrain() {
   $('#view-home').innerHTML = `<div class="page">${topBar()}<h1 class="pgt">Desafios</h1>
     <p class="muted" style="font-size:14px;margin:-6px 2px 12px;line-height:1.4">Treine contra os erros que jogadores humanos realmente cometem.</p>
     <button class="hub" id="t-day"><i>📅</i><div><b>Desafio do dia</b><span>${TR.dailyDone() ? '✅ Feito hoje' : 'Um problema novo por dia'}</span></div><em>${TR.streak() ? '🔥 ' + TR.streak() : ''}</em></button>
+    <p class="muted" style="font-size:12.5px;margin:-4px 4px 10px;line-height:1.4">🧊 Perdoa 1 dia perdido por semana: ${TR.freezeAvail() ? 'seu congelamento está disponível.' : 'já usado esta semana.'}</p>
     <button class="hub" id="t-tac"><i>♞</i><div><b>Táticas</b><span id="t-tac-s">${ts.n ? `${ts.solved}/${ts.n} resolvidos · do Fácil ao Impossível` : 'Do Fácil ao Impossível'}</span></div><em>›</em></button>
     <button class="hub" id="t-vis"><i>👁</i><div><b>Enxergar o tabuleiro</b><span>Casas, cores e peças soltas</span></div><em>›</em></button>
     <button class="hub" id="t-rev"><i>🔁</i><div><b>Revisar meus erros</b><span>${TR.reviewCount() ? TR.reviewCount() + ' lances das suas partidas' : 'Analise uma partida primeiro'}</span></div><em>›</em></button>
@@ -237,7 +241,7 @@ function pageMe() {
       <div class="avpick">${PROF_AV.map((a) => `<button data-av="${a}" class="${p.av === a ? 'on' : ''}"><div class="pc pc-${a}"></div></button>`).join('')}</div>
       <input id="p-name" class="txt" maxlength="20" value="${p.name}" placeholder="Seu nome"></div>
     <div class="sec"><h3>Estatísticas</h3></div>
-    <div class="card slim">${row('Rating estimado', myRating())}${row('Partidas', gs.n)}${row('Vitórias · Empates · Derrotas', `${gs.w} · ${gs.d} · ${gs.l}`)}${row('Precisão média', acc === null ? '—' : acc + '%')}${row('Problemas resolvidos', `${ts.solved}/${ts.n}`)}${row('Sequência de dias', `${TR.streak()} (recorde ${pg.streak.best})`)}${row('Recorde: achar a casa', pg.vis.coord || 0)}${row('Recorde: cor da casa', pg.vis.color || 0)}${row('Recorde: peças soltas', (pg.vis.hang || 0) + '/8')}</div>
+    <div class="card slim">${row('Rating estimado', myRating())}${row('Partidas', gs.n)}${row('Vitórias · Empates · Derrotas', `${gs.w} · ${gs.d} · ${gs.l}`)}${row('Precisão média', acc === null ? '—' : acc + '%')}${row('Problemas resolvidos', `${ts.solved}/${ts.n}`)}${row('Sequência de dias', `${TR.streak()} (recorde ${pg.streak.best})`)}${row('🧊 Congelamento da semana', TR.freezeAvail() ? 'disponível' : 'já usado')}${row('Recorde: achar a casa', pg.vis.coord || 0)}${row('Recorde: cor da casa', pg.vis.color || 0)}${row('Recorde: peças soltas', (pg.vis.hang || 0) + '/8')}</div>
     <div class="sec"><h3>Ajustes</h3></div>
     <div class="card slim"><div class="lbl" style="margin-top:0">Tabuleiro</div>
       <div class="themes" id="h-themes">${Object.entries(THEMES).map(([k, t]) => `<button class="theme ${opts.theme === k ? 'on' : ''}" data-th="${k}"><i style="background:${t[0]}"></i><i style="background:${t[1]}"></i><i style="background:${t[1]}"></i><i style="background:${t[0]}"></i></button>`).join('')}</div>
@@ -287,6 +291,8 @@ function pagePlay() {
   $('#view-home').innerHTML = `<div class="page"><div class="hdr" style="position:static;padding:6px 0"><button class="ibtn" id="p-back">←</button><h2 style="text-align:center">Nova partida</h2><span style="width:40px"></span></div>
     <div class="card slim"><div class="seg" id="h-mode"><button data-m="play" class="${!teach ? 'on' : ''}">♟ Partida</button><button data-m="teach" class="${teach ? 'on' : ''}">🎓 Modo Ensino</button></div>
       <p class="muted" style="font-size:13px;margin:8px 2px 0">${teach ? 'Você joga, o treinador comenta e o Stockfish responde sozinho. Dá para ver o melhor lance e tentar de novo.' : 'Partida contra o Stockfish. Os relógios rápidos (bullet e blitz) são só para treinar contra o bot, offline.'}</p></div>
+    ${teach ? '' : `<div class="card slim"><div class="seg" id="h-rank"><button data-r="1" class="${opts.ranked !== false ? 'on' : ''}">🏆 Ranqueada</button><button data-r="0" class="${opts.ranked === false ? 'on' : ''}">🧪 Treino</button></div>
+      <p class="muted" style="font-size:13px;margin:8px 2px 0;line-height:1.4">${opts.ranked !== false ? 'Vale rating. Sem desfazer, sem dica e sem análise durante a partida, como numa partida de verdade.' : 'Não vale rating. Você pode desfazer, pedir dica e analisar durante a partida.'}</p></div>`}
     <div class="card slim"><div class="lbl" style="margin-top:0">Jogar com</div>
       <div class="seg" id="h-color"><button data-c="w" class="${opts.color === 'w' ? 'on' : ''}">♔ Brancas</button><button data-c="r" class="${opts.color === 'r' ? 'on' : ''}">🎲 Sorteio</button><button data-c="b" class="${opts.color === 'b' ? 'on' : ''}">♚ Pretas</button></div>
       ${teach ? '' : `<div class="lbl">Relógio</div>${TCS.map(([n, l]) => `<div class="tcrow"><small>${n}</small><div class="seg small">${l.map(tcBtn).join('')}</div></div>`).join('')}<div class="tcrow"><small>Treino</small><div class="seg small"><button data-t="0" data-i="0" class="${!opts.tc ? 'on' : ''}">∞ Sem relógio</button></div></div>`}
@@ -297,12 +303,13 @@ function pagePlay() {
   const v = $('#view-home');
   $('#p-back').onclick = () => renderHome('home');
   v.querySelectorAll('#h-mode button').forEach((b) => (b.onclick = () => { opts.mode = b.dataset.m; saveOpts(); renderHome(); }));
+  v.querySelectorAll('#h-rank button').forEach((b) => (b.onclick = () => { opts.ranked = b.dataset.r === '1'; saveOpts(); renderHome(); }));
   v.querySelectorAll('#h-color button').forEach((b) => (b.onclick = () => { opts.color = b.dataset.c; saveOpts(); renderHome(); }));
   v.querySelectorAll('.tcrow button').forEach((b) => (b.onclick = () => { opts.tc = +b.dataset.t; opts.inc = +b.dataset.i; saveOpts(); renderHome(); }));
   v.querySelectorAll('.lv').forEach((b) => (b.onclick = () => { opts.level = +b.dataset.l; saveOpts(); renderHome(); }));
   $('#playbtn').onclick = () => {
     const c = opts.color === 'r' ? (Math.random() < 0.5 ? 'w' : 'b') : opts.color;
-    startGame({ color: c, levelId: opts.level, mode: opts.mode, tc: opts.mode === 'teach' ? 0 : opts.tc, inc: opts.mode === 'teach' ? 0 : opts.inc || 0 });
+    startGame({ color: c, levelId: opts.level, mode: opts.mode, ranked: opts.ranked !== false, tc: opts.mode === 'teach' ? 0 : opts.tc, inc: opts.mode === 'teach' ? 0 : opts.inc || 0 });
   };
 }
 
@@ -337,7 +344,7 @@ let gBoard = null;
 
 function startGame(cfg, resume = false) {
   tab = 'home';
-  G.start = cfg.start; G.color = cfg.color; G.levelId = cfg.levelId; G.mode = cfg.mode || 'play';
+  G.start = cfg.start; G.color = cfg.color; G.levelId = cfg.levelId; G.mode = cfg.mode || 'play'; G.ranked = !!cfg.ranked && G.mode !== 'teach' && !cfg.start;
   G.tc = G.mode === 'teach' ? 0 : (cfg.tc === undefined ? 10 : cfg.tc); G.inc = G.mode === 'teach' ? 0 : (cfg.inc || 0);
   G.ucis = []; G.over = null; G.thinking = false; G.hint = null; G.hinting = false; G.flip = false; G.view = null; G.anim = null; G.gen++;
   G.game = cfg.start ? new Chess(cfg.start) : new Chess(); G.fens = [G.game.fen()];
@@ -355,7 +362,7 @@ function startGame(cfg, resume = false) {
 
 function saveCurrent() {
   if (G.over) return;
-  store.set('xq.current', { start: G.start, color: G.color, levelId: G.levelId, mode: G.mode, tc: G.tc, inc: G.inc, clock: G.clock, ucis: G.ucis });
+  store.set('xq.current', { start: G.start, color: G.color, levelId: G.levelId, mode: G.mode, ranked: G.ranked, tc: G.tc, inc: G.inc, clock: G.clock, ucis: G.ucis });
 }
 
 /* ----- relógio ----- */
@@ -365,7 +372,7 @@ function stopClock() { if (clockT) clearInterval(clockT); clockT = null; }
 function tickClock() {
   const now = performance.now(); const dt = now - lastTick; lastTick = now;
   if (G.over || !G.game) return;
-  if (G.ucis.length >= 2) {
+  if (G.ucis.length >= 1) {
     const side = G.game.turn(); G.clock[side] -= dt;
     if (G.clock[side] <= 0) { G.clock[side] = 0; updateClocks(); finishGame(side === 'w' ? '0-1' : '1-0', 'Tempo esgotado.'); return; }
   }
@@ -377,7 +384,7 @@ function updateClocks() {
   for (const c of ['w', 'b']) {
     const el = $('#clk-' + c); if (!el) continue;
     el.textContent = fmtClock(G.clock[c]);
-    el.classList.toggle('on', !G.over && G.ucis.length >= 2 && G.game.turn() === c);
+    el.classList.toggle('on', !G.over && G.ucis.length >= 1 && G.game.turn() === c);
     el.classList.toggle('low', G.clock[c] < 30000);
   }
 }
@@ -445,7 +452,7 @@ document.addEventListener('click', (e) => {
   const id = e.target.closest('button') && e.target.closest('button').id;
   if (!id || !G.game) return;
   if (id === 'm-flip') { closeModal(); G.flip = !G.flip; renderGame(); }
-  if (id === 'm-ana') { closeModal(); if (G.ucis.length < 2) return toast('Jogue alguns lances primeiro.'); G.gen++; stopClock(); const rec = { id: uid(), date: Date.now(), start: G.start, ucis: G.ucis.slice(), color: G.color, levelId: G.levelId, result: '*' }; openAnalysis(rec, true); }
+  if (id === 'm-ana') { closeModal(); if (G.ucis.length < 2) return toast('Jogue alguns lances primeiro.'); if (G.ranked && !G.over) return toast('Partida ranqueada: a análise só fica disponível depois do fim.'); G.gen++; stopClock(); const rec = { id: uid(), date: Date.now(), start: G.start, ucis: G.ucis.slice(), color: G.color, levelId: G.levelId, result: '*' }; openAnalysis(rec, true); }
   if (id === 'm-pgn') { closeModal(); copyPgn(); }
   if (id === 'm-res') { closeModal(); if (!G.over && G.ucis.length) finishGame(G.color === 'w' ? '0-1' : '1-0', 'Você desistiu.'); }
   if (id === 'm-new') { closeModal(); G.gen++; stopClock(); renderHome(); }
@@ -519,8 +526,8 @@ function renderGame() {
     const top = orient === G.color ? opp : G.color, bot = orient === G.color ? G.color : opp;
     $('#g-top').innerHTML = playerCard(top, G.fens[v]); $('#g-bot').innerHTML = playerCard(bot, G.fens[v]);
     updateClocks();
-    $('#g-undo').disabled = n === 0 || !!G.over;
-    $('#g-hint').disabled = !!G.over || G.thinking || G.hinting || g.turn() !== G.color;
+    $('#g-undo').disabled = n === 0 || !!G.over || !!G.ranked;
+    $('#g-hint').disabled = !!G.over || G.thinking || G.hinting || g.turn() !== G.color || !!G.ranked;
     $('#g-hint').classList.toggle('on', !!G.hint);
     return;
   }
@@ -630,11 +637,14 @@ function finishGame(result, text) {
   const title = result === '1/2-1/2' ? 'Empate' : win ? 'Você venceu! 🎉' : 'Você perdeu';
   G.over = { title, text };
   beep('end');
-  const rec = { id: uid(), date: Date.now(), start: G.start, ucis: G.ucis.slice(), color: G.color, levelId: G.levelId, mode: G.mode, result };
-  const all = games(); all.push(rec); saveGames(all); store.del('xq.current');
+  const rec = { id: uid(), date: Date.now(), start: G.start, ucis: G.ucis.slice(), color: G.color, levelId: G.levelId, mode: G.mode, ranked: !!G.ranked, result };
+  const all = games(); const before = ratingOf(all); all.push(rec);
+  if (rec.ranked) { const after = ratingOf(all); rec.delta = after - before; rec.ratingAfter = after; }
+  saveGames(all); store.del('xq.current');
+  const ratingLine = rec.ranked ? `<div style="text-align:center;margin:-4px 0 12px"><span style="font-size:13px;color:var(--mut)">Rating estimado</span><div style="font-size:30px;font-weight:800">${rec.ratingAfter} <span style="color:${rec.delta >= 0 ? '#81b64c' : '#ff6b61'}">${rec.delta >= 0 ? '+' : '−'}${Math.abs(rec.delta)}</span></div></div>` : `<p class="muted" style="font-size:13px;margin:-6px 0 12px">${G.mode === 'teach' ? 'Modo Ensino não conta no rating.' : 'Partida de treino: não conta no rating.'}</p>`;
   renderGame();
   setTimeout(() => {
-    openModal(`<h3>${title}</h3><p class="muted" style="margin:4px 0 14px">${text}</p>
+    openModal(`<h3>${title}</h3><p class="muted" style="margin:4px 0 14px">${text}</p>${ratingLine}
       <div style="display:flex;flex-direction:column;gap:8px"><button class="btn primary" id="e-ana">📊 Ver análise completa</button><button class="btn" id="e-new">Nova partida</button><button class="btn" id="e-close">Ver tabuleiro</button></div>`);
     $('#e-ana').onclick = () => { closeModal(); openAnalysis(rec); };
     $('#e-new').onclick = () => { closeModal(); renderHome(); };

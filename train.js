@@ -31,7 +31,11 @@ export function initTrain(C) {
   const themeInfo = (t) => { const [k, x] = (t || 'tactic').split(':'); const b = THEME[k] || THEME.tactic; return { ...b, name: typeof b.name === 'function' ? b.name(x) : b.name }; };
 
   /* ---------- dados e progresso ---------- */
-  const today = () => new Date().toISOString().slice(0, 10);
+  const pad = (n) => String(n).padStart(2, '0');
+  const ymd = (d) => d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+  const today = () => ymd(new Date());
+  const dayNum = (s) => { const [y, m, d] = s.split('-').map(Number); return Math.round(Date.UTC(y, m - 1, d) / 864e5); };
+  const weekKey = () => { const d = new Date(); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return ymd(d); }; // segunda-feira da semana
   const prog = () => Object.assign({ solved: {}, failed: {}, streak: { cur: 0, best: 0, last: '' }, vis: {}, rev: {} }, store.get('xq.train', {}));
   const saveProg = (p) => store.set('xq.train', p);
   async function load() {
@@ -42,11 +46,17 @@ export function initTrain(C) {
   const levelList = (l) => (PZ || []).filter((p) => p.kind === 'tactic' && p.level === l);
   const defendList = () => (PZ || []).filter((p) => p.kind === 'defend');
   const stat = (list) => { const p = prog(); const s = list.filter((x) => p.solved[x.id]).length; return { s, n: list.length }; };
+  const freezeAvail = () => prog().freezeUsed !== weekKey();
   function touchStreak() {
-    const p = prog(); const t = today(); const y = new Date(Date.now() - 864e5).toISOString().slice(0, 10);
-    if (p.streak.last !== t) { p.streak.cur = p.streak.last === y ? p.streak.cur + 1 : 1; p.streak.last = t; p.streak.best = Math.max(p.streak.best, p.streak.cur); saveProg(p); }
+    const p = prog(); const t = today();
+    if (p.streak.last === t) return;
+    const gap = p.streak.last ? dayNum(t) - dayNum(p.streak.last) : 99;
+    if (gap === 1) p.streak.cur += 1;
+    else if (gap === 2 && p.freezeUsed !== weekKey() && p.streak.cur > 0) { p.streak.cur += 1; p.freezeUsed = weekKey(); toast('🧊 Congelamento usado: você perdoou 1 dia e manteve a sequência!', 4200); }
+    else p.streak.cur = 1;
+    p.streak.last = t; p.streak.best = Math.max(p.streak.best, p.streak.cur); saveProg(p);
   }
-  const streakNow = () => { const s = prog().streak; const t = today(); const y = new Date(Date.now() - 864e5).toISOString().slice(0, 10); return s.last === t || s.last === y ? s.cur : 0; };
+  const streakNow = () => { const p = prog(); const s = p.streak; if (!s.last) return 0; const gap = dayNum(today()) - dayNum(s.last); return gap <= 1 || (gap === 2 && freezeAvail()) ? s.cur : 0; };
 
   const totals = () => { const l = (PZ || []).filter((p) => p.kind === 'tactic'); const p = prog(); return { n: l.length, solved: l.filter((x) => p.solved[x.id]).length }; };
   const dailyDone = () => prog().dailyDone === today();
@@ -356,5 +366,5 @@ export function initTrain(C) {
     nextRound();
   }
 
-  return { menuTactics, menuVis, startReview, startDaily, streak: streakNow, totals, dailyDone, reviewCount, progress: prog, ready: load };
+  return { menuTactics, menuVis, startReview, startDaily, streak: streakNow, freezeAvail, totals, dailyDone, reviewCount, progress: prog, ready: load };
 }

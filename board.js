@@ -110,16 +110,16 @@ export class Board {
       if (idx === 0 && prev[a.to] && prev[a.to] !== now[a.to]) {
         const g = document.createElement('div');
         g.className = 'pc pc-' + prev[a.to];
-        g.style.transition = 'opacity .28s ease, transform .28s ease';
+        g.style.transition = 'opacity .45s ease, transform .45s ease';
         sq.appendChild(g);
         requestAnimationFrame(() => { g.style.opacity = '0'; g.style.transform = 'scale(.55)'; });
-        setTimeout(() => g.remove(), 320);
+        setTimeout(() => g.remove(), 500);
       }
       el.getBoundingClientRect();
       requestAnimationFrame(() => {
-        el.style.transition = 'transform .26s cubic-bezier(.22,.9,.28,1)';
+        el.style.transition = 'transform .5s cubic-bezier(.4,.0,.2,1)';
         el.style.transform = 'translate(0,0)';
-        setTimeout(() => { el.style.zIndex = ''; el.style.transition = ''; el.style.transform = ''; }, 320);
+        setTimeout(() => { el.style.zIndex = ''; el.style.transition = ''; el.style.transform = ''; }, 560);
       });
     });
   }

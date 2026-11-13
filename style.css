@@ -414,3 +414,7 @@ body.pplay .playbtn{bottom:calc(14px + var(--sab))}
 .view{min-width:0;width:100%}
 .page{width:100%;box-sizing:border-box;overflow-x:hidden;min-width:0}
 .hero2{box-sizing:border-box;width:100%}
+/* v10: sem rolagem quando cabe; avatar grande sem corte */
+#view-home{min-height:0;padding-bottom:0}
+.avs.big{overflow:visible;width:92px;height:92px}
+.avs.big .pc{inset:14px}
