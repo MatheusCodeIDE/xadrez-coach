@@ -1,0 +1,8 @@
+XADREZ COACH - como colocar no celular
+1) Hospede esta pasta (precisa abrir por https, nao funciona abrindo o index.html direto):
+   - Netlify: acesse app.netlify.com/drop e arraste a pasta inteira. Voce recebe um link.
+   - Ou GitHub Pages / Cloudflare Pages / Vercel.
+2) Abra o link no celular. iPhone: Safari > Compartilhar > Adicionar a Tela de Inicio.
+   Android: Chrome > menu > Instalar app.
+3) Depois da primeira abertura funciona 100% offline.
+Para gerar um APK Android real: use pwabuilder.com com o link hospedado.
