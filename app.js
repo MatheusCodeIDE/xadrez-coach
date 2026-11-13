@@ -1,7 +1,8 @@
 import { Chess } from './lib/chess.js';
 import { Board } from './board.js';
 import { Engine, LEVELS, toCp } from './engine.js';
-import { analyzeGame, classify, summarize, evalFen, judgeAt, whyMove, bookStatus, bookSans, openingInfo, openingDesc, CLS, BAD, winPct, fmtSan, replay } from './analysis.js';
+import { initTrain } from './train.js';
+import { openingsList, analyzeGame, classify, summarize, evalFen, judgeAt, whyMove, bookStatus, bookSans, openingInfo, openingDesc, CLS, BAD, winPct, fmtSan, replay } from './analysis.js';
 
 /* ---------- utilidades ---------- */
 const $ = (s, r = document) => r.querySelector(s);
@@ -38,8 +39,9 @@ const THEMES = { verde: ['#ebecd0', '#739552'], madeira: ['#f0d9b5', '#b58863'],
 function applyTheme(n) { const t = THEMES[n] || THEMES.verde; document.documentElement.style.setProperty('--light', t[0]); document.documentElement.style.setProperty('--dark', t[1]); }
 
 function show(name) {
-  for (const v of ['home', 'game', 'analysis']) $('#view-' + v).classList.toggle('hidden', v !== name);
+  for (const v of ['home', 'game', 'analysis', 'train']) $('#view-' + v).classList.toggle('hidden', v !== name);
   document.body.classList.toggle('noscroll', name !== 'home');
+  $('#tabbar').classList.toggle('hidden', name !== 'home');
   $('#toast').classList.add('hidden');
   window.scrollTo(0, 0); document.body.scrollTop = 0; document.documentElement.scrollTop = 0;
 }
@@ -99,66 +101,209 @@ function getAnaEngine() { if (!anaEng) { anaEng = new Engine(); anaEng.setOption
 /* ---------- dados ---------- */
 const games = () => store.get('xq.games', []);
 const saveGames = (a) => store.set('xq.games', a);
-let opts = Object.assign({ color: 'w', level: 3, mode: 'play', tc: 10, theme: 'verde', tcomm: 'all' }, store.get('xq.opts', {}));
+let opts = Object.assign({ color: 'w', level: 3, mode: 'play', tc: 10, inc: 0, theme: 'verde', tcomm: 'all' }, store.get('xq.opts', {}));
 applyTheme(opts.theme);
 const saveOpts = () => store.set('xq.opts', opts);
 
 /* =====================================================
    HOME
    ===================================================== */
-function renderHome() {
+let TR = null;
+let tab = 'home';
+const PROF_AV = ['wn', 'wk', 'wq', 'wr', 'wb', 'wp'];
+const profile = () => Object.assign({ name: 'Jogador', av: 'wn' }, store.get('xq.profile', {}));
+const resCls = (g) => {
+  if (g.result === '1/2-1/2') return ['draw', '½'];
+  const win = (g.result === '1-0') === (g.color === 'w');
+  return win ? ['win', 'V'] : ['loss', 'D'];
+};
+function myRating() {
+  let r = 800;
+  for (const g of games()) {
+    if (!g.levelId || g.mode === 'teach' || !g.result || g.result === '*') continue;
+    const opp = lv(g.levelId).elo || 800; const sc = g.result === '1/2-1/2' ? 0.5 : (g.result === '1-0') === (g.color === 'w') ? 1 : 0;
+    r += 32 * (sc - 1 / (1 + Math.pow(10, (opp - r) / 400)));
+  }
+  return Math.round(r);
+}
+function avgAccuracy() {
+  const accs = [];
+  for (const g of games()) {
+    if (!g.analysis || !g.analysis.evals) continue;
+    try { const r = classify(g.start, g.ucis, g.analysis.evals, g.color); accs.push(summarize(r.info, g.color, g.ucis).me.acc); } catch (e) {}
+  }
+  return accs.length ? Math.round(accs.reduce((a, b) => a + b, 0) / accs.length) : null;
+}
+function gameStats() {
+  const gs = games().filter((g) => g.result && g.result !== '*'); const s = { n: gs.length, w: 0, d: 0, l: 0 };
+  gs.forEach((g) => { const c = resCls(g)[0]; if (c === 'win') s.w++; else if (c === 'draw') s.d++; else s.l++; });
+  return s;
+}
+const avHTML = (av, cls = '') => `<div class="avs me ${cls}"><div class="pc pc-${av}"></div></div>`;
+const TABS = [['home', 'Início', '♟'], ['train', 'Desafios', '🧩'], ['learn', 'Aprender', '🎓'], ['me', 'Perfil', '👤']];
+
+function renderHome(t) {
+  if (t) tab = t;
   show('home'); stopClock();
-  const cur = store.get('xq.current', null);
-  const list = games();
-  const resCls = (g) => {
-    if (g.result === '1/2-1/2') return ['draw', '½'];
-    const win = (g.result === '1-0') === (g.color === 'w');
-    return win ? ['win', 'V'] : ['loss', 'D'];
-  };
-  const tcs = [[0, '∞'], [3, '3 min'], [10, '10 min'], [30, '30 min']];
-  $('#view-home').innerHTML = `
-    <div class="hero"><div class="mascot" style="width:96px;height:96px;margin:0 auto"></div>
-      <h1>Xadrez Coach</h1><p>Jogue contra o Stockfish e aprenda com um treinador</p></div>
-    ${cur ? `<div class="card"><h3>Partida em andamento</h3><div class="row"><div class="grow muted" style="font-size:14px">${cur.ucis.length} lances · ${lvName(cur.levelId)}${cur.mode === 'teach' ? ' · Ensino' : ''}</div><button class="btn primary small" id="h-resume">Continuar</button></div></div>` : ''}
-    <div class="card"><h3>Nova partida</h3>
-      <div class="seg" id="h-mode"><button data-m="play" class="${opts.mode === 'play' ? 'on' : ''}">♟ Partida</button><button data-m="teach" class="${opts.mode === 'teach' ? 'on' : ''}">🎓 Modo Ensino</button></div>
-      <p class="muted" style="font-size:13px;margin:8px 2px 0">${opts.mode === 'teach' ? 'Você joga, o treinador comenta e o Stockfish responde sozinho. Dá para ver o melhor lance e tentar de novo.' : 'Partida normal contra o motor, com relógio opcional. Análise completa no final.'}</p>
-      ${opts.mode === 'teach' ? `<div class="lbl">Comentários do treinador</div><div class="seg" id="h-comm"><button data-q="all" class="${opts.tcomm !== 'bad' ? 'on' : ''}">Todos os meus lances</button><button data-q="bad" class="${opts.tcomm === 'bad' ? 'on' : ''}">Só erros e capivaradas</button></div>` : ''}
-      <div class="lbl">Jogar com</div>
-      <div class="seg" id="h-color">
-        <button data-c="w" class="${opts.color === 'w' ? 'on' : ''}">♔ Brancas</button>
-        <button data-c="r" class="${opts.color === 'r' ? 'on' : ''}">🎲 Sorteio</button>
-        <button data-c="b" class="${opts.color === 'b' ? 'on' : ''}">♚ Pretas</button></div>
-      ${opts.mode === 'play' ? `<div class="lbl">Tempo</div><div class="seg small" id="h-tc">${tcs.map(([v, l]) => `<button data-t="${v}" class="${opts.tc === v ? 'on' : ''}">${l}</button>`).join('')}</div>` : ''}
-      <div class="lbl">Adversário</div>
-      <div class="levels" id="h-levels">${LEVELS.map((l) => `<button class="lv ${opts.level === l.id ? 'on' : ''}" data-l="${l.id}"><b>${l.name} <small class="muted">${l.elo}</small></b><span>${l.desc}</span></button>`).join('')}</div>
-      <div class="lbl">Tabuleiro</div>
-      <div class="themes" id="h-themes">${Object.entries(THEMES).map(([k, t]) => `<button class="theme ${opts.theme === k ? 'on' : ''}" data-th="${k}"><i style="background:${t[0]}"></i><i style="background:${t[1]}"></i><i style="background:${t[1]}"></i><i style="background:${t[0]}"></i></button>`).join('')}</div>
-      <button class="btn primary" id="h-start" style="width:100%;margin-top:16px;font-size:17px">${opts.mode === 'teach' ? 'Começar a aprender' : 'Jogar'}</button></div>
-    <div class="card"><h3>Minhas partidas</h3>
-      ${list.length ? list.slice().reverse().map((g) => { const [c, t] = resCls(g); return `<div class="hist" data-id="${g.id}">
-        <div class="res ${c}">${t}</div>
-        <div class="meta"><b>${g.color === 'w' ? 'Brancas' : 'Pretas'} · ${lvName(g.levelId)}${g.mode === 'teach' ? ' · Ensino' : ''}</b><span>${new Date(g.date).toLocaleDateString('pt-BR')} · ${g.ucis.length} lances${g.analysis ? ' · analisada' : ''}</span></div>
-        <button class="btn small" data-a="${g.id}">Analisar</button><button class="ibtn" data-d="${g.id}" style="width:34px;height:34px;font-size:14px">✕</button></div>`; }).join('') : '<div class="muted" style="font-size:14px">Nenhuma partida ainda. Jogue uma e peça a análise no final!</div>'}
+  document.body.classList.toggle('pplay', tab === 'play');
+  const nav = $('#tabbar'); nav.classList.toggle('hidden', tab === 'play');
+  nav.innerHTML = TABS.map(([k, l, i]) => `<button data-t="${k}" class="${tab === k ? 'on' : ''}"><span>${i}</span>${l}</button>`).join('');
+  nav.querySelectorAll('button').forEach((b) => (b.onclick = () => renderHome(b.dataset.t)));
+  ({ home: pageHome, train: pageTrain, learn: pageLearn, me: pageMe, play: pagePlay }[tab] || pageHome)();
+}
+
+function topBar() {
+  const p = profile(); const st = TR.streak();
+  return `<div class="topbar">${avHTML(p.av)}<div class="who"><b>${p.name}</b><span>Rating estimado ${myRating()}</span></div><div class="flame">🔥<b>${st}</b></div></div>`;
+}
+
+function pageHome() {
+  const cur = store.get('xq.current', null); const list = games().slice().reverse();
+  const gs = gameStats(); const acc = avgAccuracy(); const ts = TR.totals();
+  const lvlTxt = (g) => `${g.color === 'w' ? 'Brancas' : 'Pretas'} · ${lvName(g.levelId)}${g.mode === 'teach' ? ' · Ensino' : ''}`;
+  const tile = (ic, big, small) => `<div class="stile"><div class="ic">${ic}</div><b>${big}</b><span>${small}</span></div>`;
+  $('#view-home').innerHTML = `<div class="page">${topBar()}
+    <div class="hero2" id="h-daily"><div><small>Desafio do dia</small><h2>Problemas</h2><p>${TR.dailyDone() ? '✅ Feito hoje! Volte amanhã.' : 'Um novo desafio tático espera por você.'}</p></div><div class="mascot" style="width:84px;height:84px"></div><button class="btn primary">${TR.dailyDone() ? 'Rever' : 'Resolva!'}</button></div>
+    ${cur ? `<div class="card slim"><h3>Partida em andamento</h3><div class="row"><div class="grow muted" style="font-size:14px">${cur.ucis.length} lances · ${lvName(cur.levelId)}${cur.mode === 'teach' ? ' · Ensino' : ''}</div><button class="btn primary small" id="h-resume">Continuar</button></div></div>` : ''}
+    <div class="sec"><h3>Estatísticas</h3><button class="lnk" id="h-allst">Ver todos</button></div>
+    <div class="hscroll">${tile('♟', gs.n, 'Partidas')}${tile('🏆', gs.w, 'Vitórias')}${tile('🎯', acc === null ? '—' : acc + '%', 'Precisão média')}${tile('🧩', ts.solved, 'Problemas resolvidos')}${tile('📈', myRating(), 'Rating estimado')}</div>
+    <div class="sec"><h3>Minhas partidas</h3>${list.length > 4 ? '<button class="lnk" id="h-allg">Ver todas</button>' : ''}</div>
+    <div class="card slim">${list.length ? list.slice(0, 4).map((g) => histRow(g, lvlTxt)).join('') : '<div class="muted" style="font-size:14px">Nenhuma partida ainda. Toque em <b>Jogar</b> e depois peça a análise no final!</div>'}
       <button class="btn small" id="h-import" style="width:100%;margin-top:10px">Importar PGN (de outro app)</button></div>
-    <p class="muted" style="text-align:center;font-size:12px;padding:0 20px">Tudo roda no seu aparelho, sem internet. Motor: Stockfish 19 · Peças: Cardinal (sadsnake1)</p>`;
+    <div style="height:150px"></div></div>
+    <button id="playbtn" class="playbtn">Jogar</button>`;
   const v = $('#view-home');
-  v.querySelectorAll('#h-mode button').forEach((b) => (b.onclick = () => { opts.mode = b.dataset.m; saveOpts(); renderHome(); }));
-  v.querySelectorAll('#h-comm button').forEach((b) => (b.onclick = () => { opts.tcomm = b.dataset.q; saveOpts(); renderHome(); }));
-  v.querySelectorAll('#h-color button').forEach((b) => (b.onclick = () => { opts.color = b.dataset.c; saveOpts(); renderHome(); }));
-  v.querySelectorAll('#h-tc button').forEach((b) => (b.onclick = () => { opts.tc = +b.dataset.t; saveOpts(); renderHome(); }));
-  v.querySelectorAll('.lv').forEach((b) => (b.onclick = () => { opts.level = +b.dataset.l; saveOpts(); renderHome(); }));
-  v.querySelectorAll('.theme').forEach((b) => (b.onclick = () => { opts.theme = b.dataset.th; applyTheme(opts.theme); saveOpts(); renderHome(); }));
-  $('#h-start').onclick = () => {
-    const c = opts.color === 'r' ? (Math.random() < 0.5 ? 'w' : 'b') : opts.color;
-    startGame({ color: c, levelId: opts.level, mode: opts.mode, tc: opts.mode === 'teach' ? 0 : opts.tc });
-  };
+  $('#playbtn').onclick = () => renderHome('play');
+  $('#h-daily').onclick = () => TR.startDaily();
   if (cur) $('#h-resume').onclick = () => startGame(cur, true);
+  $('#h-allst').onclick = () => renderHome('me');
+  const ag = $('#h-allg'); if (ag) ag.onclick = () => showAllGames();
+  bindHist(v); $('#h-import').onclick = importPgnDialog;
+}
+function histRow(g, lvlTxt) {
+  const [c, t] = resCls(g);
+  return `<div class="hist" data-id="${g.id}"><div class="res ${c}">${t}</div>
+    <div class="meta"><b>${lvlTxt(g)}</b><span>${new Date(g.date).toLocaleDateString('pt-BR')} · ${g.ucis.length} lances${g.analysis ? ' · analisada' : ''}</span></div>
+    <button class="btn small" data-a="${g.id}">Analisar</button><button class="ibtn" data-d="${g.id}" style="width:34px;height:34px;font-size:14px">✕</button></div>`;
+}
+function bindHist(v) {
   v.querySelectorAll('[data-a]').forEach((b) => (b.onclick = () => openAnalysis(games().find((g) => g.id === b.dataset.a))));
   v.querySelectorAll('[data-d]').forEach((b) => (b.onclick = () => {
     if (confirm('Excluir esta partida?')) { saveGames(games().filter((g) => g.id !== b.dataset.d)); renderHome(); }
   }));
-  $('#h-import').onclick = importPgnDialog;
+}
+function showAllGames() {
+  const list = games().slice().reverse();
+  const lvlTxt = (g) => `${g.color === 'w' ? 'Brancas' : 'Pretas'} · ${lvName(g.levelId)}${g.mode === 'teach' ? ' · Ensino' : ''}`;
+  openModal(`<h3>Todas as partidas</h3><div style="margin-top:8px">${list.map((g) => histRow(g, lvlTxt)).join('')}</div><button class="btn" id="x-c" style="width:100%;margin-top:10px">Fechar</button>`);
+  $('#x-c').onclick = closeModal; bindHist($('#modal-card'));
+}
+
+function pageTrain() {
+  const ts = TR.totals();
+  $('#view-home').innerHTML = `<div class="page">${topBar()}<h1 class="pgt">Desafios</h1>
+    <p class="muted" style="font-size:14px;margin:-6px 2px 12px;line-height:1.4">Treine contra os erros que jogadores humanos realmente cometem.</p>
+    <button class="hub" id="t-day"><i>📅</i><div><b>Desafio do dia</b><span>${TR.dailyDone() ? '✅ Feito hoje' : 'Um problema novo por dia'}</span></div><em>${TR.streak() ? '🔥 ' + TR.streak() : ''}</em></button>
+    <button class="hub" id="t-tac"><i>♞</i><div><b>Táticas</b><span id="t-tac-s">${ts.n ? `${ts.solved}/${ts.n} resolvidos · do Fácil ao Impossível` : 'Do Fácil ao Impossível'}</span></div><em>›</em></button>
+    <button class="hub" id="t-vis"><i>👁</i><div><b>Enxergar o tabuleiro</b><span>Casas, cores e peças soltas</span></div><em>›</em></button>
+    <button class="hub" id="t-rev"><i>🔁</i><div><b>Revisar meus erros</b><span>${TR.reviewCount() ? TR.reviewCount() + ' lances das suas partidas' : 'Analise uma partida primeiro'}</span></div><em>›</em></button>
+    <div style="height:90px"></div></div>`;
+  const b = (id, f) => { const e = $(id); if (e) e.onclick = f; };
+  b('#t-day', () => TR.startDaily()); b('#t-tac', () => TR.menuTactics()); b('#t-vis', () => TR.menuVis()); b('#t-rev', () => TR.startReview());
+  TR.ready().then(() => { const e = $('#t-tac-s'); if (e) { const t2 = TR.totals(); e.textContent = `${t2.solved}/${t2.n} resolvidos · do Fácil ao Impossível`; } });
+}
+
+function pageLearn() {
+  const ops = openingsList();
+  $('#view-home').innerHTML = `<div class="page">${topBar()}<h1 class="pgt">Aprender</h1>
+    <div class="hero2 teach" id="l-teach"><div><small>Modo Ensino</small><h2>Jogue e aprenda</h2><p>O treinador comenta seus lances e o Stockfish responde sozinho.</p></div><div class="mascot" style="width:84px;height:84px"></div><button class="btn primary">Começar</button></div>
+    <div class="sec"><h3>Antes de cada lance</h3></div>
+    <div class="card slim"><ol class="tips" style="margin-left:18px"><li><b>O que o adversário ameaça?</b> Olhe o último lance dele.</li><li><b>Xeques, capturas, ameaças</b> — nessa ordem, para os dois lados.</li><li><b>Minhas peças estão protegidas?</b> E as dele?</li></ol></div>
+    <div class="sec"><h3>Aberturas</h3></div>
+    <div class="card slim">${ops.map((o, i) => `<button class="oprow" data-o="${i}"><b>${o.name}</b><span>${o.moves}</span></button>`).join('')}</div>
+    <div class="sec"><h3>Revisar uma partida</h3></div>
+    <div class="card slim"><p class="muted" style="font-size:14px;line-height:1.4;margin-bottom:8px">Jogou contra um humano? Cole o PGN (chess.com: Compartilhar → PGN) e veja onde errou.</p><button class="btn" id="l-imp" style="width:100%">Importar PGN</button></div>
+    <div style="height:90px"></div></div>`;
+  $('#l-teach').onclick = () => { opts.mode = 'teach'; saveOpts(); renderHome('play'); };
+  $('#l-imp').onclick = importPgnDialog;
+  $('#view-home').querySelectorAll('[data-o]').forEach((b) => (b.onclick = () => { const o = ops[+b.dataset.o]; openModal(`<h3>${o.name}</h3><p class="muted" style="margin:6px 0;line-height:1.45">${o.desc}</p><div class="book" style="margin:8px 0 12px">Lances: <b>${o.moves}</b></div><button class="btn" id="x-c" style="width:100%">Fechar</button>`); $('#x-c').onclick = closeModal; }));
+}
+
+function pageMe() {
+  const p = profile(); const gs = gameStats(); const acc = avgAccuracy(); const ts = TR.totals(); const pg = TR.progress();
+  const row = (a, b) => `<div class="kv"><span>${a}</span><b>${b}</b></div>`;
+  $('#view-home').innerHTML = `<div class="page"><h1 class="pgt">Perfil</h1>
+    <div class="card slim" style="text-align:center">${avHTML(p.av, 'big')}
+      <div class="avpick">${PROF_AV.map((a) => `<button data-av="${a}" class="${p.av === a ? 'on' : ''}"><div class="pc pc-${a}"></div></button>`).join('')}</div>
+      <input id="p-name" class="txt" maxlength="20" value="${p.name}" placeholder="Seu nome"></div>
+    <div class="sec"><h3>Estatísticas</h3></div>
+    <div class="card slim">${row('Rating estimado', myRating())}${row('Partidas', gs.n)}${row('Vitórias · Empates · Derrotas', `${gs.w} · ${gs.d} · ${gs.l}`)}${row('Precisão média', acc === null ? '—' : acc + '%')}${row('Problemas resolvidos', `${ts.solved}/${ts.n}`)}${row('Sequência de dias', `${TR.streak()} (recorde ${pg.streak.best})`)}${row('Recorde: achar a casa', pg.vis.coord || 0)}${row('Recorde: cor da casa', pg.vis.color || 0)}${row('Recorde: peças soltas', (pg.vis.hang || 0) + '/8')}</div>
+    <div class="sec"><h3>Ajustes</h3></div>
+    <div class="card slim"><div class="lbl" style="margin-top:0">Tabuleiro</div>
+      <div class="themes" id="h-themes">${Object.entries(THEMES).map(([k, t]) => `<button class="theme ${opts.theme === k ? 'on' : ''}" data-th="${k}"><i style="background:${t[0]}"></i><i style="background:${t[1]}"></i><i style="background:${t[1]}"></i><i style="background:${t[0]}"></i></button>`).join('')}</div>
+      <div class="lbl">Comentários no Modo Ensino</div>
+      <div class="seg" id="h-comm"><button data-q="all" class="${opts.tcomm !== 'bad' ? 'on' : ''}">Todos os lances</button><button data-q="bad" class="${opts.tcomm === 'bad' ? 'on' : ''}">Só erros e capivaradas</button></div>
+      <div class="lbl">Som</div>
+      <div class="seg" id="h-snd"><button data-s="1" class="${!muted ? 'on' : ''}">🔊 Ligado</button><button data-s="0" class="${muted ? 'on' : ''}">🔇 Desligado</button></div></div>
+    <div class="sec"><h3>Backup dos dados</h3></div>
+    <div class="card slim"><p class="muted" style="font-size:13px;line-height:1.4;margin-bottom:8px">Seus dados ficam só neste aparelho. Para trocar de celular ou não perder nada, exporte e depois importe no outro.</p>
+      <div class="row"><button class="btn grow" id="b-exp">Exportar</button><button class="btn grow" id="b-imp">Importar</button></div></div>
+    <p class="muted" style="text-align:center;font-size:12px;padding:12px 20px 0">Tudo roda no seu aparelho, sem internet. Motor: Stockfish 19 · Peças: Cardinal (sadsnake1)</p>
+    <div style="height:90px"></div></div>`;
+  const v = $('#view-home');
+  v.querySelectorAll('[data-av]').forEach((b) => (b.onclick = () => { const q = profile(); q.av = b.dataset.av; store.set('xq.profile', q); renderHome(); }));
+  $('#p-name').onchange = (e) => { const q = profile(); q.name = e.target.value.trim() || 'Jogador'; store.set('xq.profile', q); toast('Nome salvo'); };
+  v.querySelectorAll('.theme').forEach((b) => (b.onclick = () => { opts.theme = b.dataset.th; applyTheme(opts.theme); saveOpts(); renderHome(); }));
+  v.querySelectorAll('#h-comm button').forEach((b) => (b.onclick = () => { opts.tcomm = b.dataset.q; saveOpts(); renderHome(); }));
+  v.querySelectorAll('#h-snd button').forEach((b) => (b.onclick = () => { muted = b.dataset.s === '0'; store.set('xq.mute', muted); renderHome(); }));
+  $('#b-exp').onclick = exportData; $('#b-imp').onclick = importData;
+}
+function exportData() {
+  const o = {}; for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k.startsWith('xq.')) o[k] = localStorage.getItem(k); }
+  const txt = JSON.stringify({ app: 'xadrez-coach', v: 1, data: o });
+  try {
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([txt], { type: 'application/json' })); a.download = 'xadrez-coach-backup.json'; document.body.appendChild(a); a.click(); a.remove();
+    toast('Backup baixado.');
+  } catch (e) { openModal(`<h3>Backup</h3><textarea id="bk" readonly>${txt}</textarea><button class="btn" id="x-c" style="width:100%;margin-top:8px">Fechar</button>`); $('#x-c').onclick = closeModal; }
+}
+function importData() {
+  openModal(`<h3>Importar backup</h3><p class="muted" style="font-size:14px;margin:4px 0 8px">Escolha o arquivo de backup ou cole o conteúdo. Isso substitui os dados atuais.</p><input type="file" id="bk-f" accept=".json,application/json" style="margin-bottom:8px"><textarea id="bk" placeholder="Cole aqui o conteúdo do backup"></textarea><div class="row" style="margin-top:10px"><button class="btn grow" id="x-c">Cancelar</button><button class="btn primary grow" id="x-ok">Importar</button></div>`);
+  $('#bk-f').onchange = async (e) => { const f = e.target.files[0]; if (f) $('#bk').value = await f.text(); };
+  $('#x-c').onclick = closeModal;
+  $('#x-ok').onclick = () => {
+    try { const o = JSON.parse($('#bk').value); if (o.app !== 'xadrez-coach') throw 0; Object.entries(o.data).forEach(([k, v]) => { if (k.startsWith('xq.')) localStorage.setItem(k, v); }); closeModal(); toast('Dados importados!'); location.reload(); }
+    catch (e) { toast('Arquivo de backup inválido.'); }
+  };
+}
+
+const TCS = [
+  ['Bullet', [[1, 0, '1 min'], [1, 1, '1 | 1'], [2, 1, '2 | 1']]],
+  ['Blitz', [[3, 0, '3 min'], [3, 2, '3 | 2'], [5, 0, '5 min']]],
+  ['Rápida', [[10, 0, '10 min'], [15, 10, '15 | 10'], [30, 0, '30 min']]],
+];
+function pagePlay() {
+  const teach = opts.mode === 'teach';
+  const tcBtn = ([m, i, l]) => `<button data-t="${m}" data-i="${i}" class="${opts.tc === m && (opts.inc || 0) === i ? 'on' : ''}">${l}</button>`;
+  $('#view-home').innerHTML = `<div class="page"><div class="hdr" style="position:static;padding:6px 0"><button class="ibtn" id="p-back">←</button><h2 style="text-align:center">Nova partida</h2><span style="width:40px"></span></div>
+    <div class="card slim"><div class="seg" id="h-mode"><button data-m="play" class="${!teach ? 'on' : ''}">♟ Partida</button><button data-m="teach" class="${teach ? 'on' : ''}">🎓 Modo Ensino</button></div>
+      <p class="muted" style="font-size:13px;margin:8px 2px 0">${teach ? 'Você joga, o treinador comenta e o Stockfish responde sozinho. Dá para ver o melhor lance e tentar de novo.' : 'Partida contra o Stockfish. Os relógios rápidos (bullet e blitz) são só para treinar contra o bot, offline.'}</p></div>
+    <div class="card slim"><div class="lbl" style="margin-top:0">Jogar com</div>
+      <div class="seg" id="h-color"><button data-c="w" class="${opts.color === 'w' ? 'on' : ''}">♔ Brancas</button><button data-c="r" class="${opts.color === 'r' ? 'on' : ''}">🎲 Sorteio</button><button data-c="b" class="${opts.color === 'b' ? 'on' : ''}">♚ Pretas</button></div>
+      ${teach ? '' : `<div class="lbl">Relógio</div>${TCS.map(([n, l]) => `<div class="tcrow"><small>${n}</small><div class="seg small">${l.map(tcBtn).join('')}</div></div>`).join('')}<div class="tcrow"><small>Treino</small><div class="seg small"><button data-t="0" data-i="0" class="${!opts.tc ? 'on' : ''}">∞ Sem relógio</button></div></div>`}
+      <div class="lbl">Adversário</div>
+      <div class="levels" id="h-levels">${LEVELS.map((l) => `<button class="lv ${opts.level === l.id ? 'on' : ''}" data-l="${l.id}"><b>${l.name} <small class="muted">${l.elo}</small></b><span>${l.desc}</span></button>`).join('')}</div></div>
+    <div style="height:100px"></div></div>
+    <button id="playbtn" class="playbtn">${teach ? 'Começar a aprender' : 'Jogar'}</button>`;
+  const v = $('#view-home');
+  $('#p-back').onclick = () => renderHome('home');
+  v.querySelectorAll('#h-mode button').forEach((b) => (b.onclick = () => { opts.mode = b.dataset.m; saveOpts(); renderHome(); }));
+  v.querySelectorAll('#h-color button').forEach((b) => (b.onclick = () => { opts.color = b.dataset.c; saveOpts(); renderHome(); }));
+  v.querySelectorAll('.tcrow button').forEach((b) => (b.onclick = () => { opts.tc = +b.dataset.t; opts.inc = +b.dataset.i; saveOpts(); renderHome(); }));
+  v.querySelectorAll('.lv').forEach((b) => (b.onclick = () => { opts.level = +b.dataset.l; saveOpts(); renderHome(); }));
+  $('#playbtn').onclick = () => {
+    const c = opts.color === 'r' ? (Math.random() < 0.5 ? 'w' : 'b') : opts.color;
+    startGame({ color: c, levelId: opts.level, mode: opts.mode, tc: opts.mode === 'teach' ? 0 : opts.tc, inc: opts.mode === 'teach' ? 0 : opts.inc || 0 });
+  };
 }
 
 function importPgnDialog() {
@@ -191,8 +336,9 @@ const G = { game: null, start: undefined, color: 'w', levelId: 3, mode: 'play', 
 let gBoard = null;
 
 function startGame(cfg, resume = false) {
+  tab = 'home';
   G.start = cfg.start; G.color = cfg.color; G.levelId = cfg.levelId; G.mode = cfg.mode || 'play';
-  G.tc = G.mode === 'teach' ? 0 : (cfg.tc === undefined ? 10 : cfg.tc);
+  G.tc = G.mode === 'teach' ? 0 : (cfg.tc === undefined ? 10 : cfg.tc); G.inc = G.mode === 'teach' ? 0 : (cfg.inc || 0);
   G.ucis = []; G.over = null; G.thinking = false; G.hint = null; G.hinting = false; G.flip = false; G.view = null; G.anim = null; G.gen++;
   G.game = cfg.start ? new Chess(cfg.start) : new Chess(); G.fens = [G.game.fen()];
   if (resume) for (const u of cfg.ucis) { G.game.move({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u[4] }); G.ucis.push(u); G.fens.push(G.game.fen()); }
@@ -209,7 +355,7 @@ function startGame(cfg, resume = false) {
 
 function saveCurrent() {
   if (G.over) return;
-  store.set('xq.current', { start: G.start, color: G.color, levelId: G.levelId, mode: G.mode, tc: G.tc, clock: G.clock, ucis: G.ucis });
+  store.set('xq.current', { start: G.start, color: G.color, levelId: G.levelId, mode: G.mode, tc: G.tc, inc: G.inc, clock: G.clock, ucis: G.ucis });
 }
 
 /* ----- relógio ----- */
@@ -415,6 +561,7 @@ function playMove(from, to, promo) {
   const m = G.game.move({ from, to, promotion: promo });
   G.ucis.push(from + to + (promo || '')); G.fens.push(G.game.fen());
   G.hint = null; G.view = null; G.anim = animList(m, false);
+  if (G.tc && G.inc && G.ucis.length > 2) G.clock[m.color] += G.inc * 1000;
   beep(G.game.isCheck() ? 'chk' : m.captured ? 'cap' : 'move');
   return m;
 }
@@ -832,6 +979,8 @@ function openSummary() {
     closeModal(); A.line = null; A.retry = null; A.anim = null; A.ply = Math.max(0, Math.min(A.moves.length, i)); renderAnalysis();
   };
 }
+
+TR = initTrain({ $, store, toast, openModal, closeModal, show, Board, Chess, coachHTML, whyBox, animList, kingSq, fmtSan, askPromotion, beep, renderHome, getAnaEngine, games, openAnalysis, winPct, classify, whyMove });
 
 /* ---------- início ---------- */
 if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(() => {});

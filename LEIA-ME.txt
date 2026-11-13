@@ -6,3 +6,5 @@ XADREZ COACH - como colocar no celular
    Android: Chrome > menu > Instalar app.
 3) Depois da primeira abertura funciona 100% offline.
 Para gerar um APK Android real: use pwabuilder.com com o link hospedado.
+
+ATENCAO AO ATUALIZAR NO GITHUB: envie TODOS os arquivos e pastas (lib, engine, icons), incluindo train.js e puzzles.json.

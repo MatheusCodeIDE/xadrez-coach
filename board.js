@@ -61,7 +61,8 @@ export class Board {
   }
 
   render() {
-    const { fen, last, check, arrows, badge, hintSq } = this.state;
+    const { fen, last, check, arrows, badge, marks, noCoords } = this.state;
+    const emptyBoard = fen.startsWith('8/8/8/8/8/8/8/8');
     const pieces = parseFen(fen);
     let h = '';
     for (let r = 0; r < 8; r++) {
@@ -71,14 +72,15 @@ export class Board {
         let cls = 'sq ' + (light ? 'l' : 'd');
         if (last && (last[0] === sq || last[1] === sq)) cls += ' last';
         if (this.selected === sq) cls += ' sel';
+        if (marks && marks[sq]) cls += ' mk mk-' + marks[sq];
         if (check === sq) cls += ' chk';
         const t = this.targets.find((x) => x.to === sq);
         if (t) cls += t.capture ? ' tcap' : ' tgt';
         const p = pieces[sq];
         h += `<div class="${cls}" data-sq="${sq}" style="left:${c * 12.5}%;top:${r * 12.5}%">`;
         if (p) h += `<div class="pc pc-${p}"></div>`;
-        if (c === 0) h += `<i class="rk">${sq[1]}</i>`;
-        if (r === 7) h += `<i class="fl">${sq[0]}</i>`;
+        if (!noCoords && c === 0) h += `<i class="rk">${sq[1]}</i>`;
+        if (!noCoords && r === 7) h += `<i class="fl">${sq[0]}</i>`;
         if (badge && badge.sq === sq) h += `<b class="badge" style="background:${badge.color}">${badge.sym}</b>`;
         h += '</div>';
       }
@@ -137,6 +139,7 @@ export class Board {
 
   // ---- interação ----
   _down(e) {
+    if (this.opts.onTap) { const q = this.sqAt(e.clientX, e.clientY); if (q) { e.preventDefault(); this.opts.onTap(q); } return; }
     if (!this.opts.canSelect) return;
     const sq = this.sqAt(e.clientX, e.clientY);
     if (!sq) return;

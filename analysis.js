@@ -422,6 +422,17 @@ const OP_DESC = [
   ['Réti', 'Cf3 e c4: controla o centro com peças em vez de peões, deixando as pretas ocuparem o meio primeiro.'],
   ['Larsen', 'O bispo em b2 mira a grande diagonal. Fora do comum, mas sólida.'],
 ];
+export function openingsList() {
+  const out = [];
+  for (const [name, line] of OPENINGS) {
+    try {
+      const g = new Chess(); const sans = [];
+      for (const u of line.split(' ').slice(0, 8)) sans.push(fmtSan(g.move({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u[4] }).san));
+      out.push({ name, moves: sans.map((s, i) => (i % 2 === 0 ? (i / 2 + 1) + '.' : '') + s).join(' '), desc: openingDesc(name) });
+    } catch (e) {}
+  }
+  return out;
+}
 export function openingDesc(name) {
   const h = OP_DESC.find(([k]) => name.includes(k));
   return h ? h[1] : 'Abertura de livro: siga os princípios — controle o centro, desenvolva peças e role cedo.';
