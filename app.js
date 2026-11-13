@@ -183,7 +183,8 @@ function renderHome(t) {
   const nav = $('#tabbar'); nav.classList.toggle('hidden', tab === 'play' || tab === 'bots');
   nav.innerHTML = TABS.map(([k, l, i]) => `<button data-t="${k}" class="${tab === k ? 'on' : ''}"><span>${i}</span>${l}</button>`).join('');
   nav.querySelectorAll('button').forEach((b) => (b.onclick = () => renderHome(b.dataset.t)));
-  ({ home: pageHome, train: pageTrain, learn: pageLearn, me: pageMe, play: pagePlay, bots: pageBots }[tab] || pageHome)();
+  try { ({ home: pageHome, train: pageTrain, learn: pageLearn, me: pageMe, play: pagePlay, bots: pageBots }[tab] || pageHome)(); }
+  catch (err) { console.error(err); document.body.classList.remove('pplay'); nav.classList.remove('hidden'); $('#view-home').innerHTML = `<div class="page"><div class="card"><h3>Algo deu errado nesta tela</h3><p class="muted" style="margin:8px 0">${String(err && err.message || err).slice(0, 120)}</p><button class="btn primary" id="err-home" style="width:100%">Voltar ao início</button></div></div>`; $('#err-home').onclick = () => { tab = 'home'; renderHome(); }; }
   if (y) window.scrollTo(0, y);
   if (typeof ACH !== 'undefined') setTimeout(() => ACH.check(), 400);
 }
@@ -245,7 +246,7 @@ function pageHome() {
     <div style="height:150px"></div></div>
     <div class="playdock"><button id="playbtn" class="playbtn">${cur ? 'Continuar partida' : 'Jogar'}<small>${cur ? cur.ucis.length + ' lances' : (opts.color === 'r' ? 'Cor sorteada' : opts.color === 'b' ? 'Pretas' : 'Brancas') + ' · ' + (opts.bot ? botById(opts.bot).name : lvName(opts.level)) + (opts.mode === 'teach' ? ' · Ensino' : '')}</small></button><button id="playcfg" class="playcfg" aria-label="Opções da partida">⚙</button></div>`;
   const v = $('#view-home');
-  $('#playbtn').onclick = () => (cur ? startGame(cur, true) : quickGame());
+  $('#playbtn').onclick = () => (cur ? startGame(cur, true) : renderHome('play'));
   $('#playcfg').onclick = () => renderHome('play');
   $('#h-daily').onclick = () => TR.startDaily();
   const rs = $('#h-resume'); if (rs) rs.onclick = () => startGame(cur, true);
@@ -393,7 +394,7 @@ function pageMe() {
       <div class="row"><button class="btn grow" id="b-exp">Exportar</button><button class="btn grow" id="b-imp">Importar</button></div>
       <button class="btn" id="b-pgn" style="width:100%;margin-top:8px">Exportar todas as partidas (PGN)</button></div>
     <button class="btn" id="b-wel" style="width:100%;margin-top:10px">Rever boas-vindas</button>
-    <p class="muted" style="text-align:center;font-size:12px;padding:12px 20px 0">Tudo roda no seu aparelho, sem internet. Motor: Stockfish 19 · Peças: Cardinal (sadsnake1)</p>
+    <p class="muted" style="text-align:center;font-size:12px;padding:12px 20px 0">Tudo roda no seu aparelho, sem internet. Motor: Stockfish 19 · Peças: Cardinal (sadsnake1) · Versão 26</p>
     <div style="height:90px"></div></div>`;
   const v = $('#view-home');
   v.querySelectorAll('[data-av]').forEach((b) => (b.onclick = () => { const q = profile(); q.av = b.dataset.av; store.set('xq.profile', q); renderHome(); }));
@@ -485,6 +486,7 @@ function pagePlay() {
     <div class="playhero"><div class="phglow"></div><div class="mascot" style="width:110px;height:110px"></div></div>
     <button class="timebtn" id="h-time"><span class="ti">${tcIcon()}</span><b>${tcLabel()}</b><em>⌄</em></button>
     <div class="row" style="margin:10px 0 6px;gap:10px"><div class="grow muted" style="font-size:13px;align-self:center">Você joga de</div>${colorPicker()}</div>
+    ${store.get('xq.current', null) ? '<button class="mrow" id="m-cont" style="margin-bottom:10px"><div class="avs bot ic">▶</div><b>Continuar partida em andamento</b><em>›</em></button>' : ''}
     <button class="bigbtn" id="h-start">Começar Partida<small>contra ${oppName()}</small></button>
     <div class="menu2">
       <button class="mrow" id="m-bots"><div class="avs bot">${sel ? avatarSVG(sel.av) : '<div class="mascot dark"></div>'}</div><b>Jogar com Bots</b><em>›</em></button>
@@ -501,6 +503,7 @@ function pagePlay() {
   $('#p-set').onclick = botSettings;
   $('#h-start').onclick = () => { opts.mode = 'play'; saveOpts(); quickGame(); };
   $('#m-bots').onclick = () => renderHome('bots');
+  const mc = $('#m-cont'); if (mc) mc.onclick = () => startGame(store.get('xq.current', null), true);
   $('#m-coach').onclick = () => { const c = opts.color === 'r' ? (Math.random() < 0.5 ? 'w' : 'b') : opts.color; startGame({ botId: opts.bot || undefined, color: c, levelId: opts.level, mode: 'teach', ranked: false, tc: 0, inc: 0 }); };
   $('#m-err').onclick = () => TR.playMistake();
   $('#m-more').onclick = () => $('#more-box').classList.toggle('hidden');
