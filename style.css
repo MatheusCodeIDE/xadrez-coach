@@ -634,3 +634,4 @@ html.cb .goal2 .gr .gbar i{background:#2f7fd1}
 .prof .pst div{background:rgba(0,0,0,.28);border-radius:12px;padding:10px 2px}
 .prof .pst b{display:block;font-size:18px}.prof .pst span{font-size:11px;color:var(--mut,#aaa)}
 .btile .lk{left:auto;right:4px;top:4px;bottom:auto;transform:none;width:20px;height:20px;font-size:12px}
+.psetup .card{margin-bottom:12px}.psetup .lbl{margin:14px 0 8px}.psetup .levels{margin-top:2px}

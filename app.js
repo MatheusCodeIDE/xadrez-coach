@@ -179,11 +179,11 @@ function renderHome(t) {
   const keep = !t || t === tab; const y = keep && !$('#view-home').classList.contains('hidden') ? window.scrollY : 0;
   if (t) tab = t;
   show('home'); stopClock();
-  document.body.classList.toggle('pplay', tab === 'play' || tab === 'bots');
-  const nav = $('#tabbar'); nav.classList.toggle('hidden', tab === 'play' || tab === 'bots');
+  document.body.classList.toggle('pplay', tab === 'play' || tab === 'bots' || tab === 'setup');
+  const nav = $('#tabbar'); nav.classList.toggle('hidden', tab === 'play' || tab === 'bots' || tab === 'setup');
   nav.innerHTML = TABS.map(([k, l, i]) => `<button data-t="${k}" class="${tab === k ? 'on' : ''}"><span>${i}</span>${l}</button>`).join('');
   nav.querySelectorAll('button').forEach((b) => (b.onclick = () => renderHome(b.dataset.t)));
-  try { ({ home: pageHome, train: pageTrain, learn: pageLearn, me: pageMe, play: pagePlay, bots: pageBots }[tab] || pageHome)(); }
+  try { ({ home: pageHome, train: pageTrain, learn: pageLearn, me: pageMe, play: pagePlay, bots: pageBots, setup: pageSetup }[tab] || pageHome)(); }
   catch (err) { console.error(err); document.body.classList.remove('pplay'); nav.classList.remove('hidden'); $('#view-home').innerHTML = `<div class="page"><div class="card"><h3>Algo deu errado nesta tela</h3><p class="muted" style="margin:8px 0">${String(err && err.message || err).slice(0, 120)}</p><button class="btn primary" id="err-home" style="width:100%">Voltar ao início</button></div></div>`; $('#err-home').onclick = () => { tab = 'home'; renderHome(); }; }
   if (y) window.scrollTo(0, y);
   if (typeof ACH !== 'undefined') setTimeout(() => ACH.check(), 400);
@@ -394,7 +394,7 @@ function pageMe() {
       <div class="row"><button class="btn grow" id="b-exp">Exportar</button><button class="btn grow" id="b-imp">Importar</button></div>
       <button class="btn" id="b-pgn" style="width:100%;margin-top:8px">Exportar todas as partidas (PGN)</button></div>
     <button class="btn" id="b-wel" style="width:100%;margin-top:10px">Rever boas-vindas</button>
-    <p class="muted" style="text-align:center;font-size:12px;padding:12px 20px 0">Tudo roda no seu aparelho, sem internet. Motor: Stockfish 19 · Peças: Cardinal (sadsnake1) · Versão 26</p>
+    <p class="muted" style="text-align:center;font-size:12px;padding:12px 20px 0">Tudo roda no seu aparelho, sem internet. Motor: Stockfish 19 · Peças: Cardinal (sadsnake1) · Versão 27</p>
     <div style="height:90px"></div></div>`;
   const v = $('#view-home');
   v.querySelectorAll('[data-av]').forEach((b) => (b.onclick = () => { const q = profile(); q.av = b.dataset.av; store.set('xq.profile', q); renderHome(); }));
@@ -493,6 +493,7 @@ function pagePlay() {
       <button class="mrow" id="m-coach"><div class="avs bot">${avatarSVG(COACH_AV)}</div><b>Jogar contra o Treinador</b><em>›</em></button>
       <button class="mrow" id="m-err"><div class="avs bot ic">🎮</div><b>Jogar a partir do seu erro</b><em>›</em></button>
     </div>
+    <button class="mrow" id="m-setup" style="margin-top:8px"><div class="avs bot ic">🎛</div><b>Partida personalizada</b><em>›</em></button>
     <button class="morebtn" id="m-more">Mais ${'⌄'}</button>
     <div id="more-box" class="hidden"><div class="card slim"><div class="seg" id="h-rank"><button data-r="1" class="${opts.ranked !== false ? 'on' : ''}">🏆 Ranqueada</button><button data-r="0" class="${opts.ranked === false ? 'on' : ''}">🧪 Treino</button></div>
       <p class="muted" style="font-size:13px;margin:8px 2px 0;line-height:1.4">${opts.ranked !== false ? 'Vale rating. Sem desfazer, sem dica e sem análise durante a partida.' : 'Não vale rating. Você pode desfazer, pedir dica e usar a barra de vantagem.'}</p>
@@ -503,12 +504,39 @@ function pagePlay() {
   $('#p-set').onclick = botSettings;
   $('#h-start').onclick = () => { opts.mode = 'play'; saveOpts(); quickGame(); };
   $('#m-bots').onclick = () => renderHome('bots');
+  $('#m-setup').onclick = () => renderHome('setup');
   const mc = $('#m-cont'); if (mc) mc.onclick = () => startGame(store.get('xq.current', null), true);
   $('#m-coach').onclick = () => { const c = opts.color === 'r' ? (Math.random() < 0.5 ? 'w' : 'b') : opts.color; startGame({ botId: opts.bot || undefined, color: c, levelId: opts.level, mode: 'teach', ranked: false, tc: 0, inc: 0 }); };
   $('#m-err').onclick = () => TR.playMistake();
   $('#m-more').onclick = () => $('#more-box').classList.toggle('hidden');
   v.querySelectorAll('#h-rank button').forEach((b) => (b.onclick = () => { opts.ranked = b.dataset.r === '1'; saveOpts(); renderHome(); $('#more-box') && $('#more-box').classList.remove('hidden'); }));
   $('#m-imp').onclick = importPgnDialog;
+}
+function pageSetup() {
+  const teach = opts.mode === 'teach'; const rk = opts.ranked !== false && !teach;
+  const lvCards = LEVELS.map((l) => `<button class="lv ${!opts.bot && opts.level === l.id ? 'on' : ''}" data-lv="${l.id}"><b>${l.name} <span style="font-weight:600">${l.elo}</span></b><span>${l.desc}</span></button>`).join('');
+  const tcRows = TCS.map(([n, l]) => `<div class="tcrow"><small>${n}</small><div class="seg small">${l.map(([m, i, t]) => `<button data-t="${m}" data-i="${i}" class="${opts.tc === m && (opts.inc || 0) === i ? 'on' : ''}">${t}</button>`).join('')}</div></div>`).join('');
+  $('#view-home').innerHTML = `<div class="page psetup"><div class="hdr" style="position:static;padding:6px 0"><button class="ibtn" id="p-back">←</button><h2 style="text-align:center">Partida personalizada</h2><button class="ibtn" id="p-set">⚙</button></div>
+    <div class="card"><div class="seg" id="su-mode"><button data-m="play" class="${!teach ? 'on' : ''}">♟ Partida</button><button data-m="teach" class="${teach ? 'on' : ''}">🎓 Modo Ensino</button></div>
+      <p class="muted" style="font-size:14px;line-height:1.4;margin-top:10px">${teach ? 'O treinador comenta cada lance seu e explica os erros. Sem relógio.' : 'Partida contra o Stockfish. Os relógios rápidos (bullet e blitz) são só para treinar contra o bot, offline.'}</p></div>
+    ${teach ? '' : `<div class="card"><div class="seg" id="su-rank"><button data-r="1" class="${rk ? 'on' : ''}">🏆 Ranqueada</button><button data-r="0" class="${!rk ? 'on' : ''}">🧪 Treino</button></div>
+      <p class="muted" style="font-size:14px;line-height:1.4;margin-top:10px">${rk ? 'Vale rating. Sem desfazer, sem dica e sem análise durante a partida, como numa partida de verdade.' : 'Não vale rating. Você pode desfazer, pedir dica e usar a barra de vantagem.'}</p></div>`}
+    <div class="card"><div class="lbl" style="margin-top:0">JOGAR COM</div><div class="seg" id="su-col">${[['w', '♔ Brancas'], ['r', '🎲 Sorteio'], ['b', '♚ Pretas']].map(([c, t]) => `<button data-c="${c}" class="${opts.color === c ? 'on' : ''}">${t}</button>`).join('')}</div>
+      ${teach ? '' : `<div class="lbl">RELÓGIO</div>${tcRows}<div class="tcrow"><small>Treino</small><div class="seg small"><button data-t="0" data-i="0" class="${!opts.tc ? 'on' : ''}">∞ Sem relógio</button></div></div>`}
+      <div class="lbl">ADVERSÁRIO</div><div class="levels">${lvCards}</div>
+      <button class="mrow" id="su-bots" style="margin-top:10px"><div class="avs bot">${opts.bot ? avatarSVG(botById(opts.bot).av) : '<div class="mascot dark"></div>'}</div><b>${opts.bot ? 'Bot: ' + botById(opts.bot).name + ' (' + botById(opts.bot).elo + ')' : 'Ou escolha um bot com personalidade'}</b><em>›</em></button></div>
+    <div style="height:110px"></div></div>
+    <div class="playdock" style="bottom:calc(14px + var(--sab))"><button class="playbtn" id="su-go" style="position:static;flex:1;height:58px;max-width:none;margin:0;font-size:21px">Jogar</button></div>`;
+  const v = $('#view-home');
+  $('#p-back').onclick = () => renderHome('play'); $('#p-set').onclick = botSettings;
+  const keep = () => { saveOpts(); renderHome(); };
+  v.querySelectorAll('#su-mode button').forEach((b) => (b.onclick = () => { opts.mode = b.dataset.m; keep(); }));
+  v.querySelectorAll('#su-rank button').forEach((b) => (b.onclick = () => { opts.ranked = b.dataset.r === '1'; keep(); }));
+  v.querySelectorAll('#su-col button').forEach((b) => (b.onclick = () => { opts.color = b.dataset.c; keep(); }));
+  v.querySelectorAll('.tcrow button').forEach((b) => (b.onclick = () => { opts.tc = +b.dataset.t; opts.inc = +b.dataset.i; keep(); }));
+  v.querySelectorAll('[data-lv]').forEach((b) => (b.onclick = () => { opts.bot = null; opts.level = +b.dataset.lv; keep(); }));
+  $('#su-bots').onclick = () => renderHome('bots');
+  $('#su-go').onclick = () => quickGame();
 }
 function botSettings() {
   const tg = (id, on, t, d) => `<div class="trow"><div><b>${t}</b><small>${d}</small></div><button class="sw ${on ? 'on' : ''}" id="${id}"><i></i></button></div>`;
