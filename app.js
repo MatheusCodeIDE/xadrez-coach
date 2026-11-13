@@ -1,6 +1,7 @@
 import { Chess } from './lib/chess.js';
 import { Board, ARROW_COLORS } from './board.js';
 import { initAch } from './ach.js';
+import { BOTS, GROUPS, botById, botsOf, avatarSVG, pickMove, engineConfig, sayFor } from './bots.js';
 import { Engine, LEVELS, toCp } from './engine.js';
 import { initTrain } from './train.js';
 import { initEndgames } from './endgames.js';
@@ -91,6 +92,8 @@ const fmtEval = (cp) => {
 };
 const lv = (id) => LEVELS.find((l) => l.id === id) || { name: 'Importada', elo: '' };
 const lvName = (id) => lv(id).name;
+const oppLabel = (r) => { const b = r && r.botId ? botById(r.botId) : null; return b ? b.name : oppLabel(r); };
+const nearLevel = (elo) => LEVELS.reduce((p, l) => (Math.abs(l.elo - elo) < Math.abs(p.elo - elo) ? l : p)).id;
 const sanOf = (fen, uci) => { try { return fmtSan(new Chess(fen).move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci[4] }).san); } catch (e) { return uci; } };
 const castleRook = (m) => {
   if (!m || !m.flags || !/[kq]/.test(m.flags)) return null;
@@ -150,7 +153,7 @@ function ratingOf(list) {
   let r = 800;
   for (const g of list) {
     if (!g.ranked || !g.levelId || g.mode === 'teach' || !g.result || g.result === '*') continue;
-    const opp = lv(g.levelId).elo || 800; const sc = g.result === '1/2-1/2' ? 0.5 : (g.result === '1-0') === (g.color === 'w') ? 1 : 0;
+    const opp = g.botElo || lv(g.levelId).elo || 800; const sc = g.result === '1/2-1/2' ? 0.5 : (g.result === '1-0') === (g.color === 'w') ? 1 : 0;
     r += 32 * (sc - 1 / (1 + Math.pow(10, (opp - r) / 400)));
   }
   return Math.round(r);
@@ -176,11 +179,11 @@ function renderHome(t) {
   const keep = !t || t === tab; const y = keep && !$('#view-home').classList.contains('hidden') ? window.scrollY : 0;
   if (t) tab = t;
   show('home'); stopClock();
-  document.body.classList.toggle('pplay', tab === 'play');
-  const nav = $('#tabbar'); nav.classList.toggle('hidden', tab === 'play');
+  document.body.classList.toggle('pplay', tab === 'play' || tab === 'bots');
+  const nav = $('#tabbar'); nav.classList.toggle('hidden', tab === 'play' || tab === 'bots');
   nav.innerHTML = TABS.map(([k, l, i]) => `<button data-t="${k}" class="${tab === k ? 'on' : ''}"><span>${i}</span>${l}</button>`).join('');
   nav.querySelectorAll('button').forEach((b) => (b.onclick = () => renderHome(b.dataset.t)));
-  ({ home: pageHome, train: pageTrain, learn: pageLearn, me: pageMe, play: pagePlay }[tab] || pageHome)();
+  ({ home: pageHome, train: pageTrain, learn: pageLearn, me: pageMe, play: pagePlay, bots: pageBots }[tab] || pageHome)();
   if (y) window.scrollTo(0, y);
   if (typeof ACH !== 'undefined') setTimeout(() => ACH.check(), 400);
 }
@@ -212,14 +215,14 @@ function weekCompareHTML() {
 function pageHome() {
   const cur = store.get('xq.current', null); const list = games().slice().reverse();
   const gs = gameStats(); const acc = avgAccuracy(); const ts = TR.totals();
-  const lvlTxt = (g) => `${g.color === 'w' ? 'Brancas' : 'Pretas'} · ${lvName(g.levelId)}${g.mode === 'teach' ? ' · Ensino' : ''}`;
+  const lvlTxt = (g) => `${g.color === 'w' ? 'Brancas' : 'Pretas'} · ${oppLabel(g)}${g.mode === 'teach' ? ' · Ensino' : ''}`;
   const dt0 = new Date(); dt0.setHours(0, 0, 0, 0);
   const gToday = games().some((g) => g.date >= dt0.getTime()); const pToday = TR.solvedToday();
   const dDone = (gToday ? 1 : 0) + Math.min(pToday, 3);
   const w = weekProgress(); const wDone = Math.min(w.n, WK_G) + Math.min(w.p, WK_P);
   const rc = TR.reviewCount(); const pt = TR.patterns();
   const rec = (ic, ttl, sub, id, btn) => `<div class="card slim coach"><div class="row"><div class="grow"><b>${ic} ${ttl}</b><div class="muted" style="font-size:13px;margin-top:2px">${sub}</div></div><button class="btn primary small" id="${id}">${btn}</button></div></div>`;
-  const recCard = cur ? rec('▶', 'Partida em andamento', `${cur.ucis.length} lances · ${lvName(cur.levelId)}${cur.mode === 'teach' ? ' · Ensino' : ''}`, 'h-resume', 'Continuar')
+  const recCard = cur ? rec('▶', 'Partida em andamento', `${cur.ucis.length} lances · ${oppLabel(cur)}${cur.mode === 'teach' ? ' · Ensino' : ''}`, 'h-resume', 'Continuar')
     : rc ? rec('🔁', `${rc} ${rc === 1 ? 'erro seu espera' : 'erros seus esperam'} revisão`, 'Refazer seus erros é o que mais ensina.', 'h-rev', 'Revisar')
     : pt.list.length ? rec('💡', 'Dica do treinador', `Seu erro mais comum: <b>${pt.list[0].name}</b> (${pt.list[0].n}×).`, 'h-pt', 'Treinar') : '';
   const bkT = +store.get('xq.bk', 0);
@@ -240,7 +243,7 @@ function pageHome() {
       <button class="btn small" id="h-import" style="width:100%;margin-top:10px">Importar PGN (de outro app)</button></div>
     </div></div>
     <div style="height:150px"></div></div>
-    <div class="playdock"><button id="playbtn" class="playbtn">${cur ? 'Continuar partida' : 'Jogar'}<small>${cur ? cur.ucis.length + ' lances' : (opts.color === 'r' ? 'Cor sorteada' : opts.color === 'b' ? 'Pretas' : 'Brancas') + ' · ' + lvName(opts.level) + (opts.mode === 'teach' ? ' · Ensino' : '')}</small></button><button id="playcfg" class="playcfg" aria-label="Opções da partida">⚙</button></div>`;
+    <div class="playdock"><button id="playbtn" class="playbtn">${cur ? 'Continuar partida' : 'Jogar'}<small>${cur ? cur.ucis.length + ' lances' : (opts.color === 'r' ? 'Cor sorteada' : opts.color === 'b' ? 'Pretas' : 'Brancas') + ' · ' + (opts.bot ? botById(opts.bot).name : lvName(opts.level)) + (opts.mode === 'teach' ? ' · Ensino' : '')}</small></button><button id="playcfg" class="playcfg" aria-label="Opções da partida">⚙</button></div>`;
   const v = $('#view-home');
   $('#playbtn').onclick = () => (cur ? startGame(cur, true) : quickGame());
   $('#playcfg').onclick = () => renderHome('play');
@@ -275,7 +278,7 @@ function bindHist(v) {
 }
 function showAllGames() {
   const list = games().slice().reverse();
-  const lvlTxt = (g) => `${g.color === 'w' ? 'Brancas' : 'Pretas'} · ${lvName(g.levelId)}${g.mode === 'teach' ? ' · Ensino' : ''}`;
+  const lvlTxt = (g) => `${g.color === 'w' ? 'Brancas' : 'Pretas'} · ${oppLabel(g)}${g.mode === 'teach' ? ' · Ensino' : ''}`;
   openModal(`<h3>Todas as partidas</h3><div style="margin-top:8px">${list.map((g) => histRow(g, lvlTxt)).join('')}</div><button class="btn" id="x-c" style="width:100%;margin-top:10px">Fechar</button>`);
   $('#x-c').onclick = closeModal; bindHist($('#modal-card'));
 }
@@ -321,7 +324,7 @@ function ratingSeries() {
   const out = [{ r: 800 }]; let r = 800;
   for (const g of games()) {
     if (!g.ranked || !g.levelId || g.mode === 'teach' || !g.result || g.result === '*') continue;
-    const opp = lv(g.levelId).elo || 800; const sc = g.result === '1/2-1/2' ? 0.5 : (g.result === '1-0') === (g.color === 'w') ? 1 : 0;
+    const opp = g.botElo || lv(g.levelId).elo || 800; const sc = g.result === '1/2-1/2' ? 0.5 : (g.result === '1-0') === (g.color === 'w') ? 1 : 0;
     r += 32 * (sc - 1 / (1 + Math.pow(10, (opp - r) / 400))); out.push({ r: Math.round(r) });
   }
   return out.map((o) => o.r);
@@ -353,9 +356,11 @@ function pageMe() {
   const p = profile(); const gs = gameStats(); const acc = avgAccuracy(); const ts = TR.totals(); const pg = TR.progress();
   const row = (a, b) => `<div class="kv"><span>${a}</span><b>${b}</b></div>`;
   $('#view-home').innerHTML = `<div class="page"><h1 class="pgt">Perfil</h1>
-    <div class="card slim" style="text-align:center">${avHTML(p.av, 'big')}
-      <div class="avpick">${PROF_AV.map((a) => `<button data-av="${a}" class="${p.av === a ? 'on' : ''}"><div class="pc pc-${a}"></div></button>`).join('')}</div>
-      <input id="p-name" class="txt" maxlength="20" value="${p.name}" placeholder="Seu nome"></div>
+    ${(() => { const L = ACH.level(); return `<div class="prof"><div class="pglow"></div>${avHTML(p.av, 'big')}
+      <input id="p-name" class="txt pname" maxlength="20" value="${p.name}" placeholder="Seu nome">
+      <div class="plvl"><b>Nível ${L.lvl} · ${L.title}</b><span>${L.xp} XP</span></div><div class="gbar xpbar"><i style="width:${L.pct}%"></i></div>
+      <div class="pst"><div><b>${myRating()}</b><span>Rating</span></div><div><b>${gs.n}</b><span>Partidas</span></div><div><b>${gs.w}</b><span>Vitórias</span></div><div><b>${acc === null ? '—' : acc + '%'}</b><span>Precisão</span></div></div>
+      <div class="lbl" style="text-align:center">Sua peça</div><div class="avpick">${PROF_AV.map((a) => `<button data-av="${a}" class="${p.av === a ? 'on' : ''}"><div class="pc pc-${a}"></div></button>`).join('')}</div></div>`; })()}
     <div class="sec"><h3>Nível e conquistas</h3></div>
     <div class="card slim">${(() => { const L = ACH.level(); const st = ACH.status(); const ok = st.filter((x) => x.ok).length; return `<div class="row" style="align-items:baseline"><b style="font-size:20px">Nível ${L.lvl} · ${L.title}</b><span class="grow"></span><span class="muted" style="font-size:13px">${L.xp} XP</span></div><div class="gbar xpbar"><i style="width:${L.pct}%"></i></div><div class="muted" style="font-size:12.5px;margin-bottom:10px">Faltam ${L.hi - L.xp} XP para o nível ${L.lvl + 1}. Partidas, problemas, finais, aberturas e sequência dão XP.</div><div class="lbl" style="margin-top:4px">Conquistas ${ok}/${st.length}</div><div class="achg">${st.map((x) => `<button class="ach ${x.ok ? 'on' : ''}" data-ach="${x.id}"><i>${x.ic}</i><span>${x.name}</span></button>`).join('')}</div>`; })()}</div>
     <div class="sec"><h3>Estatísticas</h3></div>
@@ -456,29 +461,86 @@ const TCS = [
   ['Blitz', [[3, 0, '3 min'], [3, 2, '3 | 2'], [5, 0, '5 min']]],
   ['Rápida', [[10, 0, '10 min'], [15, 10, '15 | 10'], [30, 0, '30 min']]],
 ];
+const tcLabel = () => (!opts.tc ? 'Sem tempo' : opts.tc + (opts.inc ? ' | ' + opts.inc : ' min'));
+const tcIcon = () => (!opts.tc ? '∞' : opts.tc <= 2 ? '🚀' : opts.tc <= 5 ? '⚡' : '⏱');
+function openTimeSheet() {
+  const b = ([m, i, l]) => `<button class="tbtn ${opts.tc === m && (opts.inc || 0) === i ? 'on' : ''}" data-t="${m}" data-i="${i}">${l}</button>`;
+  openModal(`<div class="tsheet"><h3>Tempo de jogo</h3>
+    <button class="tbtn wide ${!opts.tc ? 'on' : ''}" data-t="0" data-i="0">Sem tempo</button>
+    ${TCS.map(([n, l]) => `<div class="tgrp">${n}</div><div class="tgrid">${l.map(b).join('')}</div>`).join('')}</div>`);
+  $('#modal-card').querySelectorAll('.tbtn').forEach((x) => (x.onclick = () => { opts.tc = +x.dataset.t; opts.inc = +x.dataset.i; saveOpts(); closeModal(); renderHome(); }));
+}
+const COACH_AV = { bg: '#3a4a44', skin: '#e0a878', hair: 'side', hc: '#3a2616', cloth: '#2f9e8f', collar: 'tie', tie: '#f1c40f', glasses: '#333', beard: 'stubble', eyes: 'happy', mouth: 'smile' };
+const oppName = () => { const b = opts.bot ? botById(opts.bot) : null; return b ? `${b.name} (${b.elo})` : `Stockfish · ${lvName(opts.level)}`; };
+function colorPicker() {
+  return `<div class="colrow">${[['w', '<div class="pc pc-wk"></div>'], ['r', '<span>?</span>'], ['b', '<div class="pc pc-bk"></div>']].map(([c, h]) => `<button class="colbtn ${opts.color === c ? 'on' : ''}" data-c="${c}">${h}</button>`).join('')}</div>`;
+}
+function bindPlayCommon(v) {
+  v.querySelectorAll('.colbtn').forEach((b) => (b.onclick = () => { opts.color = b.dataset.c; saveOpts(); renderHome(); }));
+  const tb = v.querySelector('#h-time'); if (tb) tb.onclick = openTimeSheet;
+}
 function pagePlay() {
-  const teach = opts.mode === 'teach';
-  const tcBtn = ([m, i, l]) => `<button data-t="${m}" data-i="${i}" class="${opts.tc === m && (opts.inc || 0) === i ? 'on' : ''}">${l}</button>`;
-  $('#view-home').innerHTML = `<div class="page"><div class="hdr" style="position:static;padding:6px 0"><button class="ibtn" id="p-back">←</button><h2 style="text-align:center">Nova partida</h2><span style="width:40px"></span></div>
-    <div class="card slim"><div class="seg" id="h-mode"><button data-m="play" class="${!teach ? 'on' : ''}">♟ Partida</button><button data-m="teach" class="${teach ? 'on' : ''}">🎓 Modo Ensino</button></div>
-      <p class="muted" style="font-size:13px;margin:8px 2px 0">${teach ? 'Você joga, o treinador comenta e o Stockfish responde sozinho. Dá para ver o melhor lance e tentar de novo.' : 'Partida contra o Stockfish. Os relógios rápidos (bullet e blitz) são só para treinar contra o bot, offline.'}</p></div>
-    ${teach ? '' : `<div class="card slim"><div class="seg" id="h-rank"><button data-r="1" class="${opts.ranked !== false ? 'on' : ''}">🏆 Ranqueada</button><button data-r="0" class="${opts.ranked === false ? 'on' : ''}">🧪 Treino</button></div>
-      <p class="muted" style="font-size:13px;margin:8px 2px 0;line-height:1.4">${opts.ranked !== false ? 'Vale rating. Sem desfazer, sem dica e sem análise durante a partida, como numa partida de verdade.' : 'Não vale rating. Você pode desfazer, pedir dica e analisar durante a partida.'}</p></div>`}
-    <div class="card slim"><div class="lbl" style="margin-top:0">Jogar com</div>
-      <div class="seg" id="h-color"><button data-c="w" class="${opts.color === 'w' ? 'on' : ''}">♔ Brancas</button><button data-c="r" class="${opts.color === 'r' ? 'on' : ''}">🎲 Sorteio</button><button data-c="b" class="${opts.color === 'b' ? 'on' : ''}">♚ Pretas</button></div>
-      ${teach ? '' : `<div class="lbl">Relógio</div>${TCS.map(([n, l]) => `<div class="tcrow"><small>${n}</small><div class="seg small">${l.map(tcBtn).join('')}</div></div>`).join('')}<div class="tcrow"><small>Treino</small><div class="seg small"><button data-t="0" data-i="0" class="${!opts.tc ? 'on' : ''}">∞ Sem relógio</button></div></div>`}
-      <div class="lbl">Adversário</div>
-      <div class="levels" id="h-levels">${LEVELS.map((l) => `<button class="lv ${opts.level === l.id ? 'on' : ''}" data-l="${l.id}"><b>${l.name} <small class="muted">${l.elo}</small></b><span>${l.desc}</span></button>`).join('')}</div></div>
-    <div style="height:100px"></div></div>
-    <button id="playbtn" class="playbtn">${teach ? 'Começar a aprender' : 'Jogar'}</button>`;
-  const v = $('#view-home');
+  const sel = opts.bot ? botById(opts.bot) : null;
+  $('#view-home').innerHTML = `<div class="page pplayp"><div class="hdr" style="position:static;padding:6px 0"><button class="ibtn" id="p-back">←</button><h2 style="text-align:center">Jogar</h2><button class="ibtn" id="p-set">⚙</button></div>
+    <div class="playhero"><div class="phglow"></div><div class="mascot" style="width:110px;height:110px"></div></div>
+    <button class="timebtn" id="h-time"><span class="ti">${tcIcon()}</span><b>${tcLabel()}</b><em>⌄</em></button>
+    <div class="row" style="margin:10px 0 6px;gap:10px"><div class="grow muted" style="font-size:13px;align-self:center">Você joga de</div>${colorPicker()}</div>
+    <button class="bigbtn" id="h-start">Começar Partida<small>contra ${oppName()}</small></button>
+    <div class="menu2">
+      <button class="mrow" id="m-bots"><div class="avs bot">${sel ? avatarSVG(sel.av) : '<div class="mascot dark"></div>'}</div><b>Jogar com Bots</b><em>›</em></button>
+      <button class="mrow" id="m-coach"><div class="avs bot">${avatarSVG(COACH_AV)}</div><b>Jogar contra o Treinador</b><em>›</em></button>
+      <button class="mrow" id="m-err"><div class="avs bot ic">🎮</div><b>Jogar a partir do seu erro</b><em>›</em></button>
+    </div>
+    <button class="morebtn" id="m-more">Mais ${'⌄'}</button>
+    <div id="more-box" class="hidden"><div class="card slim"><div class="seg" id="h-rank"><button data-r="1" class="${opts.ranked !== false ? 'on' : ''}">🏆 Ranqueada</button><button data-r="0" class="${opts.ranked === false ? 'on' : ''}">🧪 Treino</button></div>
+      <p class="muted" style="font-size:13px;margin:8px 2px 0;line-height:1.4">${opts.ranked !== false ? 'Vale rating. Sem desfazer, sem dica e sem análise durante a partida.' : 'Não vale rating. Você pode desfazer, pedir dica e usar a barra de vantagem.'}</p>
+      <button class="btn small" id="m-imp" style="width:100%;margin-top:10px">Importar PGN (de outro app)</button></div></div>
+    <div style="height:30px"></div></div>`;
+  const v = $('#view-home'); bindPlayCommon(v);
   $('#p-back').onclick = () => renderHome('home');
-  v.querySelectorAll('#h-mode button').forEach((b) => (b.onclick = () => { opts.mode = b.dataset.m; saveOpts(); renderHome(); }));
-  v.querySelectorAll('#h-rank button').forEach((b) => (b.onclick = () => { opts.ranked = b.dataset.r === '1'; saveOpts(); renderHome(); }));
-  v.querySelectorAll('#h-color button').forEach((b) => (b.onclick = () => { opts.color = b.dataset.c; saveOpts(); renderHome(); }));
-  v.querySelectorAll('.tcrow button').forEach((b) => (b.onclick = () => { opts.tc = +b.dataset.t; opts.inc = +b.dataset.i; saveOpts(); renderHome(); }));
-  v.querySelectorAll('.lv').forEach((b) => (b.onclick = () => { opts.level = +b.dataset.l; saveOpts(); renderHome(); }));
-  $('#playbtn').onclick = quickGame;
+  $('#p-set').onclick = botSettings;
+  $('#h-start').onclick = () => { opts.mode = 'play'; saveOpts(); quickGame(); };
+  $('#m-bots').onclick = () => renderHome('bots');
+  $('#m-coach').onclick = () => { const c = opts.color === 'r' ? (Math.random() < 0.5 ? 'w' : 'b') : opts.color; startGame({ botId: opts.bot || undefined, color: c, levelId: opts.level, mode: 'teach', ranked: false, tc: 0, inc: 0 }); };
+  $('#m-err').onclick = () => TR.playMistake();
+  $('#m-more').onclick = () => $('#more-box').classList.toggle('hidden');
+  v.querySelectorAll('#h-rank button').forEach((b) => (b.onclick = () => { opts.ranked = b.dataset.r === '1'; saveOpts(); renderHome(); $('#more-box') && $('#more-box').classList.remove('hidden'); }));
+  $('#m-imp').onclick = importPgnDialog;
+}
+function botSettings() {
+  const tg = (id, on, t, d) => `<div class="trow"><div><b>${t}</b><small>${d}</small></div><button class="sw ${on ? 'on' : ''}" id="${id}"><i></i></button></div>`;
+  openModal(`<div class="tsheet"><h3>Ajustes da partida</h3>
+    ${tg('s-msg', opts.bmsg !== false, 'Mensagens do bot', 'O bot comenta capturas, xeques e o resultado.')}
+    ${tg('s-live', !!opts.live, 'Barra de avaliação', 'Mostra quem está melhor durante a partida (só em treino).')}
+    ${tg('s-rank', opts.ranked !== false, 'Partida ranqueada', 'Vale rating; sem desfazer nem dicas.')}
+    ${tg('s-unl', !!store.get('xq.unlockAll', false), 'Liberar todos os bots', 'Desbloqueia todos sem precisar vencer.')}
+    <button class="btn" id="s-ok" style="width:100%;margin-top:10px">Pronto</button></div>`);
+  const flip = (id, f) => { $(id).onclick = () => { f(); saveOpts(); botSettings(); }; };
+  flip('#s-msg', () => { opts.bmsg = opts.bmsg === false; });
+  flip('#s-live', () => { opts.live = !opts.live; });
+  flip('#s-rank', () => { opts.ranked = opts.ranked === false; });
+  flip('#s-unl', () => { store.set('xq.unlockAll', !store.get('xq.unlockAll', false)); });
+  $('#s-ok').onclick = () => { closeModal(); renderHome(); };
+}
+function pageBots() {
+  const sel = opts.bot ? botById(opts.bot) : null;
+  const crowns = (id) => '👑'.repeat(Math.min(3, botWins(id)));
+  const tile = (b) => { const lk = !botUnlocked(b); return `<button class="btile ${sel && sel.id === b.id ? 'on' : ''} ${lk ? 'lock' : ''}" data-b="${b.id}"><div class="avs bot">${avatarSVG(b.av)}</div>${lk ? '<i class="lk">🔒</i>' : ''}${crowns(b.id) ? `<span class="crw">${crowns(b.id)}</span>` : ''}</button>`; };
+  const top = sel ? `<div class="bhead"><div class="avs bot big">${avatarSVG(sel.av)}</div><div class="saybub big"><span>${sel.greet}</span></div></div>
+    <div class="bname"><b>${sel.name}</b><span>${sel.elo}</span><em>${({ attacker: 'Agressivo', defender: 'Defensivo', trader: 'Trocador', queen: 'Dama cedo', solid: 'Posicional', wild: 'Imprevisível', balanced: 'Equilibrado', blunder: 'Distraído' })[sel.style]}</em></div><p class="muted bdesc">${sel.desc}</p>`
+    : `<div class="bhead"><div class="avs bot big"><div class="mascot dark"></div></div><div class="saybub big"><span>Stockfish clássico: escolha um dos níveis lá embaixo ou um bot com personalidade.</span></div></div><div class="bname"><b>Stockfish</b><span>${lv(opts.level).elo}</span><em>${lvName(opts.level)}</em></div>`;
+  $('#view-home').innerHTML = `<div class="page pbots"><div class="hdr" style="position:static;padding:6px 0"><button class="ibtn" id="p-back">←</button><h2 style="text-align:center">Jogar com Bots</h2><button class="ibtn" id="p-set">⚙</button></div>
+    ${top}
+    ${GROUPS.map((g, i) => `<h4 class="bgt">${g}</h4><div class="bgrid">${botsOf(i).map(tile).join('')}</div>`).join('')}
+    <h4 class="bgt">Stockfish clássico</h4><div class="bgrid">${LEVELS.map((l) => `<button class="btile ${!sel && opts.level === l.id ? 'on' : ''}" data-lv="${l.id}"><div class="avs bot"><div class="mascot dark"></div></div><span class="lvn">${l.name}</span></button>`).join('')}</div>
+    <div style="height:170px"></div></div>
+    <div class="bpanel"><div class="row" style="gap:8px"><button class="timebtn small" id="h-time"><span class="ti">${tcIcon()}</span><b>${tcLabel()}</b><em>⌄</em></button>${colorPicker()}</div>
+      <button class="bigbtn" id="h-start">Jogar</button></div>`;
+  const v = $('#view-home'); bindPlayCommon(v);
+  $('#p-back').onclick = () => renderHome('play'); $('#p-set').onclick = botSettings;
+  v.querySelectorAll('[data-b]').forEach((b) => (b.onclick = () => { const bot = botById(b.dataset.b); if (!botUnlocked(bot)) { const g = botsOf(bot.group); return toast(`🔒 Vença ${g[g.indexOf(bot) - 1].name} para desbloquear ${bot.name}.`, 2600); } opts.bot = bot.id; saveOpts(); renderHome(); window.scrollTo(0, 0); }));
+  v.querySelectorAll('[data-lv]').forEach((b) => (b.onclick = () => { opts.bot = null; opts.level = +b.dataset.lv; saveOpts(); renderHome(); window.scrollTo(0, 0); }));
+  $('#h-start').onclick = () => { opts.mode = 'play'; saveOpts(); quickGame(); };
 }
 function playFrom(fen, color) {
   startGame({ start: fen, color, levelId: opts.level, mode: 'play', ranked: false, tc: 0, inc: 0 });
@@ -486,7 +548,7 @@ function playFrom(fen, color) {
 }
 function quickGame() {
   const c = opts.color === 'r' ? (Math.random() < 0.5 ? 'w' : 'b') : opts.color;
-  startGame({ color: c, levelId: opts.level, mode: opts.mode, ranked: opts.ranked !== false, tc: opts.mode === 'teach' ? 0 : opts.tc, inc: opts.mode === 'teach' ? 0 : opts.inc || 0 });
+  startGame({ botId: opts.bot || undefined, color: c, levelId: opts.level, mode: opts.mode, ranked: opts.ranked !== false, tc: opts.mode === 'teach' ? 0 : opts.tc, inc: opts.mode === 'teach' ? 0 : opts.inc || 0 });
 }
 
 function importPgnDialog() {
@@ -520,7 +582,8 @@ let gBoard = null;
 
 function startGame(cfg, resume = false) {
   tab = 'home';
-  G.start = cfg.start; G.color = cfg.color; G.levelId = cfg.levelId; G.mode = cfg.mode || 'play'; G.ranked = !!cfg.ranked && G.mode !== 'teach' && !cfg.start;
+  G.botId = cfg.botId || null; G.bot = botById(G.botId); G.say = null;
+  G.start = cfg.start; G.color = cfg.color; G.levelId = G.bot ? nearLevel(G.bot.elo) : cfg.levelId; G.mode = cfg.mode || 'play'; G.ranked = !!cfg.ranked && G.mode !== 'teach' && !cfg.start;
   G.tc = G.mode === 'teach' ? 0 : (cfg.tc === undefined ? 10 : cfg.tc); G.inc = G.mode === 'teach' ? 0 : (cfg.inc || 0);
   G.ucis = []; G.over = null; G.thinking = false; G.hint = null; G.hinting = false; G.flip = false; G.view = null; G.anim = null; G.gen++;
   G.game = cfg.start ? new Chess(cfg.start) : new Chess(); G.fens = [G.game.fen()];
@@ -529,8 +592,9 @@ function startGame(cfg, resume = false) {
   G.teach = { phase: 'idle', judge: null, showBest: false, tt: 0, note: null, cp: 0, show: false, jply: -1 };
   G.msg = resume ? 'Bem-vindo de volta! Continue de onde parou.' : G.color === 'w' ? 'Vamos jogar! Você tem as brancas, faça o primeiro lance.' : 'Você joga com as pretas. Vou começar!';
   buildGameView(); show('game'); if (!resume) beep('start');
+  if (G.bot && !resume) setTimeout(() => botSay(G.bot.greet), 800);
   try {
-    getPlayEngine().setOptions(Object.assign({ UCI_LimitStrength: 'false', 'Skill Level': 20 }, lv(G.levelId).opts));
+    getPlayEngine().setOptions(Object.assign({ UCI_LimitStrength: 'false', 'Skill Level': 20 }, G.bot ? engineConfig(G.bot.elo).opts : lv(G.levelId).opts));
   } catch (err) { toast('Não foi possível iniciar o motor de xadrez.'); }
   saveCurrent(); renderGame(); startClock();
   if (!G.over && G.game.turn() !== G.color) engineMove();
@@ -538,7 +602,7 @@ function startGame(cfg, resume = false) {
 
 function saveCurrent() {
   if (G.over) return;
-  store.set('xq.current', { start: G.start, color: G.color, levelId: G.levelId, mode: G.mode, ranked: G.ranked, tc: G.tc, inc: G.inc, clock: G.clock, ucis: G.ucis });
+  store.set('xq.current', { botId: G.botId, start: G.start, color: G.color, levelId: G.levelId, mode: G.mode, ranked: G.ranked, tc: G.tc, inc: G.inc, clock: G.clock, ucis: G.ucis });
 }
 
 /* ----- relógio ----- */
@@ -574,7 +638,7 @@ function buildGameView() {
   const hdr = (title) => `<div class="hdr"><button class="ibtn" id="g-back">←</button>${title}<button class="ibtn" id="g-mute">${muted ? '🔇' : '🔊'}</button></div>`;
   if (teach) {
     $('#view-game').innerHTML = `<div class="screen teach">
-      ${hdr(`<h2>Modo Ensino · ${lvName(G.levelId)}</h2>`)}
+      ${hdr(`<h2>Modo Ensino · ${oppLabel(G)}</h2>`)}
       <div class="hbar" id="g-eval"></div>
       <div id="g-coach" style="display:flex;flex-direction:column;flex:1 1 auto;min-height:0"></div>
       <div class="pcard slim" id="g-top"></div>
@@ -587,7 +651,7 @@ function buildGameView() {
     $('#view-game').innerHTML = `<div class="screen play">
       ${hdr(`<div class="brand"><i class="mascot"></i><span>Xadrez <b>Coach</b></span></div>`)}
       <div class="strip bar" id="g-strip"></div>
-      <div class="sp"></div>
+      <div class="sp"><div id="g-say"></div></div>
       <div class="hbar live" id="g-eval"></div>
       <div class="pcard" id="g-top"></div>
       <div class="boardwrap"><div id="g-board"></div></div>
@@ -666,7 +730,7 @@ function leaveGame(go) {
 function pgnOf(rec) {
   const g = new Chess(); if (rec.start) g.load(rec.start);
   for (const u of rec.ucis) g.move({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u[4] });
-  const me = profile().name || 'Jogador'; const sf = 'Stockfish (' + lvName(rec.levelId) + ')';
+  const me = profile().name || 'Jogador'; const sf = 'Stockfish (' + oppLabel(rec) + ')';
   const d = new Date(rec.date || Date.now()); const pad = (n) => String(n).padStart(2, '0');
   const H = { Event: 'Xadrez Coach', Site: 'Xadrez Coach', Date: `${d.getFullYear()}.${pad(d.getMonth() + 1)}.${pad(d.getDate())}`, White: rec.color === 'w' ? me : sf, Black: rec.color === 'w' ? sf : me, Result: rec.result && rec.result !== '*' ? rec.result : '*' };
   for (const k in H) g.setHeader(k, H[k]);
@@ -680,7 +744,7 @@ function copyText(t, okMsg) { (navigator.clipboard ? navigator.clipboard.writeTe
 function gameActions(id) {
   const g = games().find((x) => x.id === id); if (!g) return;
   const [, t] = resCls(g);
-  openModal(`<h3>${g.color === 'w' ? 'Brancas' : 'Pretas'} · ${lvName(g.levelId)} · ${t}</h3><div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">
+  openModal(`<h3>${g.color === 'w' ? 'Brancas' : 'Pretas'} · ${oppLabel(g)} · ${t}</h3><div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">
     <button class="btn primary" id="ga-an">📊 ${accOf(g) !== null ? 'Revisão da partida' : 'Analisar'}</button>
     <button class="btn" id="ga-cp">📋 Copiar PGN</button>
     ${navigator.share ? '<button class="btn" id="ga-sh">📤 Compartilhar</button>' : ''}
@@ -722,8 +786,8 @@ function playerCard(color, fen) {
   const lead = color === 'w' ? adv : -adv;
   const mine = color === G.color;
   const l = lv(G.levelId);
-  const av = mine ? `<div class="avs me"><div class="pc pc-${color}k"></div></div>` : `<div class="avs"><div class="mascot dark"></div></div>`;
-  const name = mine ? '<b>Você</b>' : `<b>Stockfish</b><span>(${l.elo})</span>`;
+  const av = mine ? `<div class="avs me"><div class="pc pc-${color}k"></div></div>` : G.bot ? `<div class="avs bot">${avatarSVG(G.bot.av)}</div>` : `<div class="avs"><div class="mascot dark"></div></div>`;
+  const name = mine ? '<b>Você</b>' : G.bot ? `<b>${G.bot.name}</b><span>(${G.bot.elo})</span>` : `<b>Stockfish</b><span>(${l.elo})</span>`;
   const clk = G.tc ? `<div class="clock" id="clk-${color}">${fmtClock(G.clock[color])}</div>` : '';
   return `${av}<div class="pinfo"><div class="pnm">${name}</div><div class="pcap">${res[color].map((p) => `<i class="mini pc-${p}"></i>`).join('')}${lead > 0 ? `<span style="margin-left:10px">+${lead}</span>` : ''}</div></div>${clk}`;
 }
@@ -762,7 +826,7 @@ function renderGame() {
     const opp = G.color === 'w' ? 'b' : 'w';
     const top = orient === G.color ? opp : G.color, bot = orient === G.color ? G.color : opp;
     $('#g-top').innerHTML = playerCard(top, G.fens[v]); $('#g-bot').innerHTML = playerCard(bot, G.fens[v]);
-    updateClocks(); liveUpdate(G.fens[v]);
+    updateClocks(); liveUpdate(G.fens[v]); drawSay();
     $('#g-undo').disabled = n === 0 || !!G.over || !!G.ranked;
     $('#g-hint').disabled = !!G.over || G.thinking || G.hinting || g.turn() !== G.color || !!G.ranked;
     $('#g-hint').classList.toggle('on', !!G.hint);
@@ -801,12 +865,31 @@ async function userMove(from, to) {
   if (G.mode === 'teach') await teachAfterUserMove(fenBefore, m);
   else afterMove();
 }
+const botStats = () => store.get('xq.bots', {});
+const botWins = (id) => (botStats()[id] || {}).w || 0;
+function botUnlocked(b) {
+  if (store.get('xq.unlockAll', false)) return true;
+  const g = botsOf(b.group); const i = g.indexOf(b); return i === 0 || botWins(g[i - 1].id) >= 1;
+}
+const BVAL = { p: 1, n: 3, b: 3, r: 5, q: 9 };
+let sayT = 0;
+function botSay(txt) {
+  if (!G.bot || opts.bmsg === false || !txt || G.mode === 'teach') return;
+  G.say = txt; clearTimeout(sayT); sayT = setTimeout(() => { G.say = null; drawSay(); }, 4800); drawSay();
+}
+function drawSay() { const e = $('#g-say'); if (!e) return; e.innerHTML = G.say && G.bot ? `<div class="saybub"><div class="avs bot mini">${avatarSVG(G.bot.av)}</div><span>${G.say}</span></div>` : ''; }
+function botReact(m) {
+  if (!G.bot) return;
+  if (m.color !== G.color) { if (m.captured && BVAL[m.captured] >= 3) botSay(sayFor(G.bot, 'cap')); else if (G.game.isCheck()) botSay(sayFor(G.bot, 'chk')); }
+  else if (m.captured && BVAL[m.captured] >= 3) botSay(sayFor(G.bot, 'lost'));
+}
 function playMove(from, to, promo) {
   const m = G.game.move({ from, to, promotion: promo });
   G.ucis.push(from + to + (promo || '')); G.fens.push(G.game.fen());
   G.hint = null; G.view = null; G.anim = animList(m, false);
   if (G.tc && G.inc && G.ucis.length > 2) G.clock[m.color] += G.inc * 1000;
   beep(G.game.isCheck() ? 'chk' : m.captured ? 'cap' : 'move');
+  botReact(m);
   return m;
 }
 async function afterMove(minMs = 0) {
@@ -831,14 +914,17 @@ async function engineMove(minMs = 0) {
   const l = lv(G.levelId);
   const t0 = Date.now();
   let r;
-  try { r = await getPlayEngine().search(G.game.fen(), l.go); } catch (e) { G.thinking = false; toast('Erro no motor de xadrez.'); return; }
+  try {
+    if (G.bot) { const u = await pickMove({ Chess, engine: getPlayEngine(), openings: openingLines() }, G.game.fen(), G.ucis, G.bot, !G.start); r = { best: u }; }
+    else r = await getPlayEngine().search(G.game.fen(), l.go);
+  } catch (e) { G.thinking = false; toast('Erro no motor de xadrez.'); return; }
   await sleep(Math.max(0, Math.max(550, minMs) - (Date.now() - t0)));
   if (gen !== G.gen) return;
   G.thinking = false;
   if (!r.best) { renderGame(); return; }
   const fenBefore = G.game.fen();
   const m = playMove(r.best.slice(0, 2), r.best.slice(2, 4), r.best[4]);
-  G.msg = `Stockfish jogou ${fmtSan(m.san)}. Sua vez!`;
+  G.msg = `${G.bot ? G.bot.name : 'Stockfish'} jogou ${fmtSan(m.san)}. Sua vez!`;
   if (G.mode === 'teach') { G.teach.phase = 'idle'; G.teach.note = { san: fmtSan(m.san), why: whyMove(fenBefore, r.best, G.ucis.length - 1) }; }
   saveCurrent();
   if (checkEnd()) { renderGame(); return; }
@@ -875,15 +961,23 @@ function finishGame(result, text) {
   const title = result === '1/2-1/2' ? 'Empate' : win ? 'Você venceu! 🎉' : 'Você perdeu';
   G.over = { title, text };
   if (/mate/i.test(text || '')) { beep('mate'); setTimeout(() => beep(win ? 'win' : 'lose'), 550); } else beep(result === '1/2-1/2' ? 'draw' : win ? 'win' : 'lose');
-  const rec = { id: uid(), date: Date.now(), start: G.start, ucis: G.ucis.slice(), color: G.color, levelId: G.levelId, mode: G.mode, ranked: !!G.ranked, result };
+  let botEnd = '';
+  if (G.bot) {
+    const ev = result === '1/2-1/2' ? 'draw' : win ? 'lose' : 'win';
+    const st = botStats(); const o = st[G.botId] || { w: 0, d: 0, l: 0 };
+    if (G.mode !== 'teach' && !G.start) { if (ev === 'draw') o.d++; else if (win) o.w++; else o.l++; st[G.botId] = o; store.set('xq.bots', st); }
+    let unl = ''; if (win && o.w === 1 && !G.start && G.mode !== 'teach') { const gb = botsOf(G.bot.group); const nx = gb[gb.indexOf(G.bot) + 1]; if (nx) unl = `<div class="muted" style="font-size:13px;margin-top:6px">🔓 Você desbloqueou <b>${nx.name}</b>!</div>`; }
+    botEnd = `<div class="botend"><div class="avs bot">${avatarSVG(G.bot.av)}</div><div><div class="saybub big"><span>${sayFor(G.bot, ev) || ''}</span></div>${unl}</div></div>`;
+  }
+  const rec = { id: uid(), date: Date.now(), start: G.start, ucis: G.ucis.slice(), color: G.color, levelId: G.levelId, botId: G.botId || undefined, botElo: G.bot ? G.bot.elo : undefined, mode: G.mode, ranked: !!G.ranked, result };
   const all = games(); const before = ratingOf(all); all.push(rec);
   if (rec.ranked) { const after = ratingOf(all); rec.delta = after - before; rec.ratingAfter = after; }
   saveGames(all); store.del('xq.current');
   const ratingLine = rec.ranked ? `<div style="text-align:center;margin:-4px 0 12px"><span style="font-size:13px;color:var(--mut)">Rating estimado</span><div style="font-size:30px;font-weight:800">${rec.ratingAfter} <span style="color:${rec.delta >= 0 ? '#81b64c' : '#ff6b61'}">${rec.delta >= 0 ? '+' : '−'}${Math.abs(rec.delta)}</span></div></div>` : `<p class="muted" style="font-size:13px;margin:-6px 0 12px">${G.mode === 'teach' ? 'Modo Ensino não conta no rating.' : 'Partida de treino: não conta no rating.'}</p>`;
   renderGame();
-  const cfg = { color: G.color === 'w' ? 'b' : 'w', levelId: G.levelId, mode: G.mode, ranked: G.ranked, tc: G.tc, inc: G.inc };
+  const cfg = { botId: G.botId, color: G.color === 'w' ? 'b' : 'w', levelId: G.levelId, mode: G.mode, ranked: G.ranked, tc: G.tc, inc: G.inc };
   setTimeout(() => {
-    openModal(`<div class="endcard"><h3>${title}</h3><p class="muted" style="margin:2px 0 12px">${text}</p>${ratingLine}
+    openModal(`<div class="endcard">${botEnd}<h3>${title}</h3><p class="muted" style="margin:2px 0 12px">${text}</p>${ratingLine}
       <div id="e-say">${coachHTML({ title: '<span class="spinner"></span>Analisando seu jogo…', text: 'Já já mostro seus acertos e erros.' })}</div>
       <div id="e-stats"></div>
       <button class="btn primary" id="e-ana" disabled style="width:100%;margin-top:12px">📊 Revisão da partida</button>
