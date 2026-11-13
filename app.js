@@ -92,7 +92,7 @@ const fmtEval = (cp) => {
 };
 const lv = (id) => LEVELS.find((l) => l.id === id) || { name: 'Importada', elo: '' };
 const lvName = (id) => lv(id).name;
-const oppLabel = (r) => { const b = r && r.botId ? botById(r.botId) : null; return b ? b.name : oppLabel(r); };
+const oppLabel = (r) => { const b = r && r.botId ? botById(r.botId) : null; return b ? b.name : lvName(r && r.level); };
 const nearLevel = (elo) => LEVELS.reduce((p, l) => (Math.abs(l.elo - elo) < Math.abs(p.elo - elo) ? l : p)).id;
 const sanOf = (fen, uci) => { try { return fmtSan(new Chess(fen).move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci[4] }).san); } catch (e) { return uci; } };
 const castleRook = (m) => {
