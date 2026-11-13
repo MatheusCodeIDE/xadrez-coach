@@ -12,10 +12,26 @@
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/icon-180.png">
 <title>Xadrez Coach</title>
+<style>#splash{position:fixed;inset:0;z-index:999;background:#262421;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;transition:opacity .45s ease,visibility .45s;color:#fff;font-family:-apple-system,system-ui,sans-serif}#splash.out{opacity:0;visibility:hidden;pointer-events:none}#splash img{width:112px;height:112px;border-radius:26px;animation:spl 1.2s ease-in-out infinite alternate}#splash b{font-size:26px;letter-spacing:.3px}#splash b span{color:#81b64c}#splash .sb{width:120px;height:4px;border-radius:2px;background:#3d3a36;overflow:hidden}#splash .sb i{display:block;height:100%;width:40%;background:#81b64c;border-radius:2px;animation:spb 1s ease-in-out infinite alternate}@keyframes spl{from{transform:scale(.94)}to{transform:scale(1.04)}}@keyframes spb{from{margin-left:0}to{margin-left:60%}}</style>
+<link rel="apple-touch-startup-image" media="(device-width:430px) and (device-height:932px) and (-webkit-device-pixel-ratio:3) and (orientation:portrait)" href="icons/splash/s1290x2796.png">
+<link rel="apple-touch-startup-image" media="(device-width:393px) and (device-height:852px) and (-webkit-device-pixel-ratio:3) and (orientation:portrait)" href="icons/splash/s1179x2556.png">
+<link rel="apple-touch-startup-image" media="(device-width:428px) and (device-height:926px) and (-webkit-device-pixel-ratio:3) and (orientation:portrait)" href="icons/splash/s1284x2778.png">
+<link rel="apple-touch-startup-image" media="(device-width:390px) and (device-height:844px) and (-webkit-device-pixel-ratio:3) and (orientation:portrait)" href="icons/splash/s1170x2532.png">
+<link rel="apple-touch-startup-image" media="(device-width:375px) and (device-height:812px) and (-webkit-device-pixel-ratio:3) and (orientation:portrait)" href="icons/splash/s1125x2436.png">
+<link rel="apple-touch-startup-image" media="(device-width:414px) and (device-height:896px) and (-webkit-device-pixel-ratio:3) and (orientation:portrait)" href="icons/splash/s1242x2688.png">
+<link rel="apple-touch-startup-image" media="(device-width:414px) and (device-height:896px) and (-webkit-device-pixel-ratio:2) and (orientation:portrait)" href="icons/splash/s828x1792.png">
+<link rel="apple-touch-startup-image" media="(device-width:414px) and (device-height:736px) and (-webkit-device-pixel-ratio:3) and (orientation:portrait)" href="icons/splash/s1242x2208.png">
+<link rel="apple-touch-startup-image" media="(device-width:375px) and (device-height:667px) and (-webkit-device-pixel-ratio:2) and (orientation:portrait)" href="icons/splash/s750x1334.png">
+<link rel="apple-touch-startup-image" media="(device-width:834px) and (device-height:1194px) and (-webkit-device-pixel-ratio:2) and (orientation:portrait)" href="icons/splash/s1668x2388.png">
+<link rel="apple-touch-startup-image" media="(device-width:1024px) and (device-height:1366px) and (-webkit-device-pixel-ratio:2) and (orientation:portrait)" href="icons/splash/s2048x2732.png">
+<link rel="apple-touch-startup-image" media="(device-width:820px) and (device-height:1180px) and (-webkit-device-pixel-ratio:2) and (orientation:portrait)" href="icons/splash/s1640x2360.png">
+<link rel="apple-touch-startup-image" media="(device-width:810px) and (device-height:1080px) and (-webkit-device-pixel-ratio:2) and (orientation:portrait)" href="icons/splash/s1620x2160.png">
+<link rel="apple-touch-startup-image" media="(device-width:834px) and (device-height:1112px) and (-webkit-device-pixel-ratio:2) and (orientation:portrait)" href="icons/splash/s1668x2224.png">
 <link rel="stylesheet" href="pieces.css">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
+<div id="splash"><img src="icons/icon-192.png" alt=""><b>Xadrez <span>Coach</span></b><div class="sb"><i></i></div></div>
 <div id="app">
   <section id="view-home" class="view"></section>
   <section id="view-game" class="view hidden"></section>

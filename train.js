@@ -1,6 +1,6 @@
 // Desafios: táticas (erros típicos de humanos), enxergar o tabuleiro e revisão dos seus erros
 export function initTrain(C) {
-  const { $, store, toast, openModal, closeModal, show, Board, Chess, coachHTML, whyBox, animList, kingSq, fmtSan, askPromotion, beep, renderHome, getAnaEngine, games, openAnalysis, winPct, classify, whyMove } = C;
+  const { playFrom, $, store, toast, openModal, closeModal, show, Board, Chess, coachHTML, whyBox, animList, kingSq, fmtSan, askPromotion, beep, renderHome, getAnaEngine, games, openAnalysis, winPct, classify, whyMove } = C;
   const V = $('#view-train');
   let PZ = null;
   const OK = { color: '#81b64c', sym: '✓' }, NO = { color: '#ca3431', sym: '✗' }, INFO = { color: '#5c8bb0', sym: '!' };
@@ -44,6 +44,8 @@ export function initTrain(C) {
     return PZ;
   }
   const levelList = (l) => (PZ || []).filter((p) => p.kind === 'tactic' && p.level === l);
+  const TH = [['fork', '🍴', 'Garfos'], ['pin', '📌', 'Cravadas'], ['skewer', '🍢', 'Espetos'], ['hanging', '🎯', 'Peças soltas'], ['mate', '👑', 'Mates em 1, 2 e 3'], ['winexch', '⚖️', 'Trocas vantajosas'], ['check', '⚡', 'Xeques decisivos'], ['sac', '💥', 'Sacrifícios'], ['winmat', '💰', 'Ganhar material']];
+  const themeList = (k) => (PZ || []).filter((p) => p.kind !== 'defend' && String(p.theme || '').split(':')[0].replace(/[123]$/, '') === k);
   const defendList = () => (PZ || []).filter((p) => p.kind === 'defend');
   const stat = (list) => { const p = prog(); const s = list.filter((x) => p.solved[x.id]).length; return { s, n: list.length }; };
   const freezeAvail = () => prog().freezeUsed !== weekKey();
@@ -60,7 +62,13 @@ export function initTrain(C) {
 
   const totals = () => { const l = (PZ || []).filter((p) => p.kind === 'tactic'); const p = prog(); return { n: l.length, solved: l.filter((x) => p.solved[x.id]).length }; };
   const dailyDone = () => prog().dailyDone === today();
-  const reviewCount = () => reviewItems().length;
+  const REVD = [1, 3, 7, 14, 30];
+  const isDue = (p, id) => { const r = p.rev[id]; return !r || Date.now() >= (r.due !== undefined ? r.due : (r.t || 0) + 864e5); };
+  const reviewCount = () => { const p = prog(); return reviewItems().filter((x) => isDue(p, x.id)).length; };
+  const reviewTotal = () => reviewItems().length;
+  const todayStart = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); };
+  const solvedBetween = (a, b) => { const p = prog(); const f = (o) => o && o.t >= a && o.t < b; return Object.values(p.solved).filter(f).length + Object.values(p.rev).filter(f).length; };
+  const solvedToday = () => { const p = prog(); const t0 = todayStart(); return Object.values(p.solved).filter((o) => o && o.t >= t0).length + Object.values(p.rev).filter((o) => o && o.t >= t0).length; };
 
   /* ---------- menu de táticas ---------- */
   async function menuTactics() {
@@ -73,15 +81,18 @@ export function initTrain(C) {
     V.innerHTML = `<div class="screen trm"><div class="hdr"><button class="ibtn" id="m-back">←</button><h2>Táticas</h2><span style="width:40px"></span></div>
       <div class="trbody"><p class="muted" style="font-size:14px;line-height:1.45;margin:2px 2px 12px">São posições de partidas em que alguém <b>errou</b>, como um humano erra. Ache o lance que pune o erro. Cada nível fica mais difícil de enxergar.</p>
       ${rows}
+      <div class="sec" style="margin:14px 2px 8px"><h3>Por tema</h3></div>
+      ${TH.map(([k, ic, nm]) => { const l = themeList(k); if (!l.length) return ''; const s = stat(l); return `<button class="lvrow" data-th="${k}"><div class="stars" style="font-size:24px">${ic}</div><div class="g"><b>${nm}</b><div class="pb"><i style="width:${Math.round((s.s / s.n) * 100)}%"></i></div></div><div class="n">${s.s}/${s.n}</div></button>`; }).join('')}
       <button class="lvrow def" data-d="1"><div class="stars" style="font-size:26px">🛡</div><div class="g"><b>Defenda-se!</b><small>O adversário ameaça algo: veja o perigo e ache a defesa</small><div class="pb"><i style="width:${d.n ? Math.round((d.s / d.n) * 100) : 0}%"></i></div></div><div class="n">${d.s}/${d.n}</div></button>
       <div class="muted" style="text-align:center;font-size:12px;margin-top:10px">Sequência: ${p.streak.cur ? '🔥 ' + streakNow() : '—'} · Recorde: ${p.streak.best} dias</div></div></div>`;
     $('#m-back').onclick = () => renderHome('train');
     V.querySelectorAll('[data-l]').forEach((b) => (b.onclick = () => startPuzzles(levelList(+b.dataset.l), 'Nível ' + b.dataset.l, 'tactic')));
+    V.querySelectorAll('[data-th]').forEach((b) => (b.onclick = () => { const k = b.dataset.th; const nm = TH.find((x) => x[0] === k)[2]; startPuzzles(themeList(k), nm, 'tactic'); }));
     V.querySelector('[data-d]').onclick = () => startPuzzles(defendList(), 'Defenda-se!', 'defend');
   }
 
   /* ---------- tela de desafio ---------- */
-  const P = { list: [], idx: 0, title: '', mode: 'tactic', pz: null, g: null, step: 0, tries: 0, side: 'w', locked: true, done: false, hintLv: 0, board: null, gen: 0, flip: false, shown: false, wrongMark: null, backTo: null };
+  const P = window.__trP = { list: [], idx: 0, title: '', mode: 'tactic', pz: null, g: null, step: 0, tries: 0, side: 'w', locked: true, done: false, hintLv: 0, board: null, gen: 0, flip: false, shown: false, wrongMark: null, backTo: null };
   function buildPuzzleView() {
     V.innerHTML = `<div class="screen pz"><div class="hdr"><button class="ibtn" id="p-back">←</button><h2 id="p-title"></h2><button class="ibtn" id="p-flip">⇅</button></div>
       <div class="pinfo" id="p-info"></div>
@@ -93,16 +104,16 @@ export function initTrain(C) {
       getTargets: (sq) => P.g.moves({ square: sq, verbose: true }).map((m) => ({ to: m.to, capture: !!m.captured })),
       onMove: userMove,
     });
-    $('#p-back').onclick = () => { P.gen++; (P.backTo || menuTactics)(); };
+    $('#p-back').onclick = () => { P.gen++; clearInterval(P.bT); (P.backTo || menuTactics)(); };
     $('#p-flip').onclick = () => { P.flip = !P.flip; drawP(); };
     $('#p-hint').onclick = hint; $('#p-sol').onclick = showSolution; $('#p-redo').onclick = () => loadPuzzle(P.idx);
     $('#p-next').onclick = nextPuzzle;
-    $('#p-coach').onclick = (e) => { const a = e.target.closest('[data-act]'); if (!a) return; if (a.dataset.act === 'next') nextPuzzle(); if (a.dataset.act === 'sol') showSolution(); if (a.dataset.act === 'hint') hint(); };
+    $('#p-coach').onclick = (e) => { const a = e.target.closest('[data-act]'); if (!a) return; if (a.dataset.act === 'next') nextPuzzle(); if (a.dataset.act === 'sol') showSolution(); if (a.dataset.act === 'hint') hint(); if (a.dataset.act === 'play') { P.gen++; playFrom(P.pz.fen, P.side); } };
   }
   function startPuzzles(list, title, mode, opts = {}) {
     if (!list.length) return toast('Ainda não há desafios aqui.');
     P.list = list; P.title = title; P.mode = mode; P.backTo = opts.backTo || null;
-    const p = prog(); let i = list.findIndex((x) => !(mode === 'review' ? p.rev[x.id] : p.solved[x.id])); if (i < 0) i = 0;
+    const p = prog(); let i = list.findIndex((x) => !(mode === 'review' ? !isDue(p, x.id) : p.solved[x.id])); if (i < 0) i = 0;
     show('train'); buildPuzzleView(); loadPuzzle(i);
   }
   const sideName = (c) => (c === 'w' ? 'Brancas' : 'Pretas');
@@ -110,9 +121,9 @@ export function initTrain(C) {
     const gen = ++P.gen; P.idx = i; const pz = P.list[i]; P.pz = pz; P.step = 0; P.tries = 0; P.done = false; P.hintLv = 0; P.shown = false; P.flip = false; P.wrongMark = null; P.locked = true;
     P.side = pz.side; P.title2 = '';
     const total = P.list.length;
-    $('#p-title').textContent = `${P.title} · ${i + 1}/${total}`;
-    $('#p-next').disabled = true; $('#p-sol').disabled = false; $('#p-hint').disabled = false;
-    if (pz.pre) {
+    $('#p-title').textContent = P.mode === 'blitz' ? blitzTitle() : `${P.title} · ${i + 1}/${total}`;
+    $('#p-next').disabled = P.mode !== 'blitz'; $('#p-sol').disabled = false; $('#p-hint').disabled = false;
+    if (pz.pre && P.mode !== 'blitz') {
       P.g = new Chess(pz.pre); drawP();
       $('#p-coach').innerHTML = coachHTML({ title: 'Observe a posição…', text: `${sideName(P.side)} jogam. Veja o que o adversário vai fazer.` });
       await new Promise((r) => setTimeout(r, 650)); if (gen !== P.gen) return;
@@ -171,6 +182,7 @@ export function initTrain(C) {
     $('#p-coach').innerHTML = coachHTML({ title: `Adversário jogou ${fmtSan(rm.san)}`, text: 'Agora ache o próximo lance.' });
   }
   function wrong(mv) {
+    if (P.mode === 'blitz') { P.locked = true; P.bEnd -= 5000; P.pen = (P.pen || 0) + 1; drawP(); const el = $('#p-board'); el.classList.remove('shake'); void el.offsetWidth; el.classList.add('shake'); beep('cap'); $('#p-coach').innerHTML = coachHTML({ badge: NO, title: `${fmtSan(mv.san)} não é o melhor`, text: '−5 segundos. Próximo!' }); setTimeout(nextBlitz, 650); return; }
     const pz = P.pz; P.tries++;
     if (P.tries === 1) { const p = prog(); p.failed[pz.id] = (p.failed[pz.id] || 0) + 1; saveProg(p); }
     drawP(); const el = $('#p-board'); el.classList.remove('shake'); void el.offsetWidth; el.classList.add('shake');
@@ -197,28 +209,67 @@ export function initTrain(C) {
     const p = prog(); if (!p.failed[pz.id]) { p.failed[pz.id] = 1; saveProg(p); }
     drawP(); P.arrow = null;
     const T = themeInfo(pz.theme);
-    $('#p-coach').innerHTML = coachHTML({ badge: INFO, title: `Solução: ${P.mode === 'review' ? pz.bestSan : sans.slice(P.step).slice(0, 1)}`, text: `${whyBox(pz.why)}<div class="lesson"><b>${T.name}.</b> ${T.lesson}</div>`, extra: P.mode === 'review' ? '' : `Sequência: ${sans.join(' ')}`, links: '<button class="linkbtn" data-act="next">Próximo ›</button>' });
+    $('#p-coach').innerHTML = coachHTML({ badge: INFO, title: `Solução: ${P.mode === 'review' ? pz.bestSan : sans.slice(P.step).slice(0, 1)}`, text: `${whyBox(pz.why)}<div class="lesson"><b>${T.name}.</b> ${T.lesson}</div>`, extra: P.mode === 'review' ? '' : `Sequência: ${sans.join(' ')}`, links: '<button class="linkbtn" data-act="next">Próximo ›</button>' + (P.mode === 'review' ? '<button class="linkbtn" data-act="play">♟ Jogar esta posição</button>' : '') });
     $('#p-next').disabled = false; $('#p-sol').disabled = true; $('#p-hint').disabled = true;
   }
   function success(alt, mv) {
     P.done = true; P.locked = true; const pz = P.pz; const p = prog();
-    if (P.mode === 'review') p.rev[pz.id] = { t: Date.now() }; else p.solved[pz.id] = { t: Date.now(), tries: P.tries, alt: !!alt };
+    if (P.mode === 'blitz') { P.score++; beep('end'); blitzTitleSet(); setTimeout(nextBlitz, 380); return; }
+    if (P.mode === 'review') { const pr = p.rev[pz.id] || { box: 0 }; const bx = P.tries ? 1 : Math.min((pr.box || 0) + 1, 5); p.rev[pz.id] = { t: Date.now(), box: bx, due: Date.now() + REVD[bx - 1] * 864e5 }; } else p.solved[pz.id] = { t: Date.now(), tries: P.tries, alt: !!alt };
     delete p.failed[pz.id]; if (P.title === 'Desafio do dia') p.dailyDone = today(); saveProg(p); touchStreak(); beep('end');
     const T = themeInfo(pz.theme); const sans = pz.sol ? solSans() : [];
     const extra = P.mode === 'review' ? '' : alt ? `O lance do motor era ${sans[P.step] || sans[0]}, mas o seu também funciona.` : sans.length > 1 ? `Sequência: ${sans.join(' ')}` : '';
     const err = pz.oppSan && T.err && P.mode !== 'review' && pz.kind !== 'defend' ? `<div class="lesson">👤 <b>Como o adversário errou:</b> ao jogar ${pz.oppSan}, ${T.err}</div>` : '';
-    $('#p-coach').innerHTML = coachHTML({ badge: OK, title: alt ? 'Também funciona!' : `Resolvido! ${P.mode === 'review' ? '' : T.name}`, text: `${P.mode === 'review' ? whyBox(whyMove(pz.fen, pz.sol[0], 20, { best: pz.sol[0] })) : whyBox(pz.why)}<div class="lesson"><b>Lição:</b> ${T.lesson}</div>${err}`, extra, links: '<button class="linkbtn" data-act="next">Próximo ›</button>' });
+    $('#p-coach').innerHTML = coachHTML({ badge: OK, title: alt ? 'Também funciona!' : `Resolvido! ${P.mode === 'review' ? '' : T.name}`, text: `${P.mode === 'review' ? whyBox(whyMove(pz.fen, pz.sol[0], 20, { best: pz.sol[0] })) : whyBox(pz.why)}<div class="lesson"><b>Lição:</b> ${T.lesson}</div>${err}`, extra, links: '<button class="linkbtn" data-act="next">Próximo ›</button>' + (P.mode === 'review' ? '<button class="linkbtn" data-act="play">♟ Jogar esta posição</button>' : '') });
     $('#p-next').disabled = false; $('#p-sol').disabled = true; $('#p-hint').disabled = true; $('#p-next').classList.add('pulse');
     setTimeout(() => { const n = $('#p-next'); if (n) n.classList.remove('pulse'); }, 1600);
   }
   function nextPuzzle() {
-    const p = prog(); const n = P.list.length; const solved = (x) => (P.mode === 'review' ? p.rev[x.id] : p.solved[x.id]);
+    const p = prog(); const n = P.list.length; const solved = (x) => (P.mode === 'review' ? !isDue(p, x.id) : p.solved[x.id]);
     for (let k = 1; k <= n; k++) { const i = (P.idx + k) % n; if (!solved(P.list[i]) && i !== P.idx) return loadPuzzle(i); }
     if (!solved(P.list[P.idx])) return loadPuzzle(P.idx);
     const lvl = P.pz.level; const all = P.list.length;
     openModal(`<h3 style="text-align:center">🎉 Tudo resolvido!</h3><p class="muted" style="text-align:center;margin:6px 0 14px">Você concluiu os ${all} desafios de “${P.title}”.</p><div style="display:flex;flex-direction:column;gap:8px">${P.mode === 'tactic' && lvl && lvl < 5 ? `<button class="btn primary" id="x-next">Ir para o nível ${lvl + 1}</button>` : ''}<button class="btn" id="x-menu">Voltar ao menu</button></div>`);
     const nx = $('#x-next'); if (nx) nx.onclick = () => { closeModal(); startPuzzles(levelList(lvl + 1), 'Nível ' + (lvl + 1), 'tactic'); };
     $('#x-menu').onclick = () => { closeModal(); (P.backTo || menuTactics)(); };
+  }
+
+
+  /* ---------- treino relâmpago ---------- */
+  const BL_SEC = 180;
+  const fmtT = (ms) => { const s = Math.max(0, Math.ceil(ms / 1000)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
+  const blitzTitle = () => `⚡ ${fmtT(P.bEnd - Date.now())} · ${P.score} ✔`;
+  const blitzTitleSet = () => { const e = $('#p-title'); if (e && P.mode === 'blitz') e.textContent = blitzTitle(); };
+  function nextBlitz() {
+    if (P.mode !== 'blitz' || P.over) return;
+    P.bi = (P.bi + 1) % P.list.length; loadPuzzle(P.bi);
+  }
+  async function startBlitz() {
+    await load();
+    const pool = PZ.filter((p) => p.sol && p.sol.length <= 3 && p.kind === 'tactic' && p.level <= 3);
+    if (pool.length < 10) return toast('Ainda não há problemas suficientes.');
+    for (let i = pool.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [pool[i], pool[j]] = [pool[j], pool[i]]; }
+    const best = prog().vis.blitz || 0;
+    openModal(`<h3 style="text-align:center">⚡ Treino relâmpago</h3><p class="muted" style="text-align:center;margin:8px 0 14px;line-height:1.45">Resolva o máximo de problemas em <b>3 minutos</b>. Cada lance errado custa 5 segundos e passa para o próximo. Seu recorde: <b>${best}</b>.</p><button class="btn primary" id="x-go" style="width:100%">Começar</button><button class="btn" id="x-no" style="width:100%;margin-top:8px">Agora não</button>`);
+    $('#x-no').onclick = closeModal;
+    $('#x-go').onclick = () => {
+      closeModal(); clearInterval(P.bT);
+      P.list = pool; P.title = 'Relâmpago'; P.mode = 'blitz'; P.backTo = () => renderHome('train'); P.score = 0; P.pen = 0; P.over = false; P.bi = 0;
+      show('train'); buildPuzzleView();
+      ['p-hint', 'p-sol', 'p-redo'].forEach((id) => { const e = $('#' + id); if (e) e.style.display = 'none'; });
+      $('#p-next').textContent = 'Pular';
+      P.bEnd = Date.now() + BL_SEC * 1000;
+      P.bT = setInterval(() => { if (P.mode !== 'blitz') return clearInterval(P.bT); if (Date.now() >= P.bEnd) return endBlitz(); blitzTitleSet(); }, 250);
+      loadPuzzle(0);
+      $('#p-next').onclick = () => { if (P.mode === 'blitz' && !P.over) { P.gen++; nextBlitz(); } };
+    };
+  }
+  function endBlitz() {
+    clearInterval(P.bT); if (P.over) return; P.over = true; P.gen++; P.locked = true;
+    const p = prog(); const old = p.vis.blitz || 0; const nb = P.score > old; if (nb) { p.vis.blitz = P.score; saveProg(p); } touchStreak(); beep('end');
+    openModal(`<h3 style="text-align:center">⏱ Tempo!</h3><div style="text-align:center;font-size:44px;font-weight:800;margin:6px 0">${P.score}</div><p class="muted" style="text-align:center;margin:0 0 14px">${P.score === 1 ? 'problema resolvido' : 'problemas resolvidos'}${nb ? ' · <b style="color:var(--green)">novo recorde! 🎉</b>' : ' · recorde: ' + old}</p><button class="btn primary" id="x-again" style="width:100%">Jogar de novo</button><button class="btn" id="x-menu" style="width:100%;margin-top:8px">Voltar</button>`);
+    $('#x-again').onclick = () => { closeModal(); startBlitz(); };
+    $('#x-menu').onclick = () => { closeModal(); renderHome('train'); };
   }
 
   /* ---------- desafio do dia ---------- */
@@ -242,6 +293,7 @@ export function initTrain(C) {
         });
       } catch (e) {}
     }
+    items.sort((a, b) => (isDue(p, b.id) ? 1 : 0) - (isDue(p, a.id) ? 1 : 0) || (b.sev || 0) - (a.sev || 0));
     return items.slice(0, 80);
   }
   const TAGN = {
@@ -273,9 +325,14 @@ export function initTrain(C) {
     }
     return { total, list: Object.entries(c).sort((a, b) => b[1] - a[1]).map(([k, n]) => ({ tag: k, n, name: (TAGN[k] || TAGN.generic)[0], tip: (TAGN[k] || TAGN.generic)[1] })) };
   }
+  function playMistake() {
+    const it = reviewItems().slice(0, 12); if (!it.length) return startReview();
+    const pz = it[Math.floor(Math.random() * it.length)]; playFrom(pz.fen, pz.side);
+  }
   function startReview(tag) {
     let items = reviewItems();
     if (tag) items = items.filter((x) => (x.tags && x.tags[0] || 'generic') === tag);
+    else { const p = prog(); const d = items.filter((x) => isDue(p, x.id)); if (d.length) items = d; }
     if (!items.length) return openModal(`<h3>Revisar meus erros</h3><p class="muted" style="margin:8px 0 14px;line-height:1.45">Ainda não há erros para revisar. Jogue uma partida e toque em <b>Analisar</b> na tela inicial: os seus erros e capivaradas viram desafios aqui.</p><button class="btn primary" id="x-ok" style="width:100%">Ok</button>`) || ($('#x-ok').onclick = closeModal);
     startPuzzles(items, 'Meus erros', 'review', { backTo: () => renderHome('train') });
   }
@@ -396,5 +453,5 @@ export function initTrain(C) {
     nextRound();
   }
 
-  return { patterns, touch: touchStreak, menuTactics, menuVis, startReview, startDaily, streak: streakNow, freezeAvail, totals, dailyDone, reviewCount, progress: prog, ready: load };
+  return { solvedBetween, playMistake, startBlitz, tagInfo: (k) => TAGN[k] || TAGN.generic, patterns, touch: touchStreak, menuTactics, menuVis, startReview, startDaily, streak: streakNow, freezeAvail, totals, dailyDone, reviewCount, reviewTotal, solvedToday, progress: prog, ready: load };
 }

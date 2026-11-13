@@ -1,6 +1,6 @@
 // Tabuleiro: toque para selecionar/mover ou arraste a peça
 const FILES = 'abcdefgh';
-const ARROW_COLORS = { good: 'rgba(129,182,76,.85)', bad: 'rgba(202,52,49,.8)', blue: 'rgba(92,139,176,.85)' };
+export const ARROW_COLORS = { good: 'rgba(129,182,76,.85)', bad: 'rgba(202,52,49,.8)', blue: 'rgba(92,139,176,.85)' };
 
 export function parseFen(fen) {
   const map = {};
@@ -62,8 +62,8 @@ export class Board {
 
   render() {
     if (this.state.anim && this.state.anim.length) { if (this._defT) { clearTimeout(this._defT); this._defT = null; } }
-    else if (this._animAt && Date.now() - this._animAt < 560) {
-      if (!this._defT) this._defT = setTimeout(() => { this._defT = null; this.render(); }, 570 - (Date.now() - this._animAt));
+    else if (this._animAt && Date.now() - this._animAt < 340) {
+      if (!this._defT) this._defT = setTimeout(() => { this._defT = null; this.render(); }, 350 - (Date.now() - this._animAt));
       return;
     }
     const { fen, last, check, arrows, badge, marks, noCoords } = this.state;
@@ -98,7 +98,7 @@ export class Board {
     this.root.innerHTML = h;
     const prev = this._prev; this._prev = pieces;
     const anim = this.state.anim;
-    if (anim && anim.length && !this._noAnim) this._animate(anim, prev, pieces);
+    if (anim && anim.length && !this._noAnim && document.documentElement.dataset.rm !== '1') this._animate(anim, prev, pieces);
     this._noAnim = false; this._dropPt = null;
     this.state.anim = null;
   }
@@ -120,16 +120,16 @@ export class Board {
       if (idx === 0 && prev[a.to] && prev[a.to] !== now[a.to]) {
         const g = document.createElement('div');
         g.className = 'pc pc-' + prev[a.to];
-        g.style.transition = 'opacity .45s ease, transform .45s ease';
+        g.style.transition = 'opacity .3s ease, transform .3s ease';
         sq.appendChild(g);
         requestAnimationFrame(() => { g.style.opacity = '0'; g.style.transform = 'scale(.55)'; });
-        setTimeout(() => g.remove(), 500);
+        setTimeout(() => g.remove(), 330);
       }
       el.getBoundingClientRect();
       requestAnimationFrame(() => {
-        el.style.transition = 'transform .5s cubic-bezier(.4,.0,.2,1)';
+        el.style.transition = 'transform .3s cubic-bezier(.3,.0,.2,1)';
         el.style.transform = 'translate(0,0)';
-        setTimeout(() => { el.style.zIndex = ''; el.style.transition = ''; el.style.transform = ''; }, 560);
+        setTimeout(() => { el.style.zIndex = ''; el.style.transition = ''; el.style.transform = ''; }, 340);
       });
     });
   }
